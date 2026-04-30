@@ -95,10 +95,6 @@ def darken(rgb, factor=0.75):
 
 
 def normalize_depth(depth_img):
-    """
-    Better normalization for Depth Anything V2.
-    Direct depth_arr / 255 often gives weak height variation.
-    """
     depth_arr = np.array(depth_img).astype(np.float32)
 
     p2 = np.percentile(depth_arr, 2)
@@ -115,10 +111,6 @@ def normalize_depth(depth_img):
 
 
 def create_edge_map(original_img):
-    """
-    Extracts architectural detail from the original image.
-    Tuned to avoid too much noisy stone texture.
-    """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img)
 
@@ -128,11 +120,9 @@ def create_edge_map(original_img):
     # Higher thresholds = cleaner, less noisy edge map.
     edges = cv2.Canny(gray, 80, 180)
 
-    # Remove tiny noisy edge specks first.
     kernel_open = np.ones((2, 2), np.uint8)
     edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, kernel_open)
 
-    # Light dilation keeps important architecture lines visible.
     kernel_dilate = np.ones((2, 2), np.uint8)
     edges = cv2.dilate(edges, kernel_dilate, iterations=1)
 
@@ -140,9 +130,6 @@ def create_edge_map(original_img):
 
 
 def create_sky_mask(original_img):
-    """
-    Removes sky/background so it does not become bricks.
-    """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img).astype(np.uint8)
 
@@ -165,9 +152,6 @@ def create_sky_mask(original_img):
 
 
 def create_dark_recess_mask(original_img):
-    """
-    Dark windows and doors should be lower/recessed, not raised.
-    """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img).astype(np.uint8)
 
@@ -185,9 +169,6 @@ def create_dark_recess_mask(original_img):
 
 
 def create_bright_detail_mask(original_img):
-    """
-    Bright stone/marble details like the entrance arch should be slightly raised.
-    """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img).astype(np.uint8)
 
@@ -207,9 +188,6 @@ def create_bright_detail_mask(original_img):
 
 
 def smooth_height_map(height_map):
-    """
-    Light smoothing. Too much smoothing removes architecture details.
-    """
     padded = np.pad(height_map, 1, mode="edge")
     smoothed = np.zeros_like(height_map)
 
@@ -222,10 +200,6 @@ def smooth_height_map(height_map):
 
 
 def boost_depth_edges(depth_arr, height_map):
-    """
-    Uses depth changes to strengthen big structure edges:
-    tower borders, walls, foreground separation.
-    """
     gy, gx = np.gradient(depth_arr.astype(float))
     edges = np.sqrt(gx * gx + gy * gy)
     edges = edges / max(edges.max(), 1)
@@ -238,13 +212,6 @@ def boost_depth_edges(depth_arr, height_map):
 
 
 def build_improved_height_map(depth_img, original_img):
-    """
-    Depth Anything V2 = large shape
-    Original image edge map = fine architectural details
-    Dark mask = recessed windows/doors
-    Bright mask = raised arch/decorations
-    Sky mask = remove background
-    """
     depth_arr = normalize_depth(depth_img)
 
     edge_map = create_edge_map(original_img)
@@ -255,12 +222,10 @@ def build_improved_height_map(depth_img, original_img):
     height_map = np.round((depth_arr / 255.0) * MAX_HEIGHT_PLATES).astype(int)
 
     height_map[depth_arr < MIN_DEPTH_VALUE] = 0
-
     height_map = smooth_height_map(height_map)
-
     height_map = boost_depth_edges(depth_arr, height_map)
 
-    # Add architectural detail from original image, now less aggressively.
+    # Fine architectural detail.
     height_map = height_map + np.round(edge_map * EDGE_DETAIL_BOOST).astype(int)
 
     # Recess dark windows/doors.
@@ -275,7 +240,7 @@ def build_improved_height_map(depth_img, original_img):
     # Remove sky/background.
     height_map[sky_mask] = 0
 
-    # Remove very weak depth areas again.
+    # Remove weak depth areas again.
     height_map[depth_arr < MIN_DEPTH_VALUE] = 0
 
     height_map = np.clip(height_map, 0, MAX_HEIGHT_PLATES).astype(int)
@@ -351,10 +316,6 @@ def create_stud_preview(brick_layout):
 
 
 def draw_iso_brick(draw, sx, sy, height, rgb):
-    """
-    Draws a small pseudo-3D LEGO-like block.
-    This is not real 3D, but it gives a much better preview than flat rectangles.
-    """
     w = 4
     d = 3
     h = max(1, int(height * 1.2))
@@ -388,7 +349,6 @@ def draw_iso_brick(draw, sx, sy, height, rgb):
     draw.polygon(right, fill=right_color)
     draw.polygon(top, fill=top_color)
 
-    # Small top stud highlight.
     cx = sx + w
     cy = sy - h
     stud_color = lighten(rgb, 1.28)
@@ -399,10 +359,6 @@ def draw_iso_brick(draw, sx, sy, height, rgb):
 
 
 def create_isometric_preview(brick_layout):
-    """
-    Creates a pseudo-3D isometric preview.
-    This helps the output look more like a physical LEGO model.
-    """
     scale_x = 4
     scale_y = 3
 
@@ -412,7 +368,6 @@ def create_isometric_preview(brick_layout):
     img = Image.new("RGB", (img_width, img_height), "white")
     draw = ImageDraw.Draw(img)
 
-    # Draw from back to front so closer bricks appear on top.
     sorted_layout = sorted(brick_layout, key=lambda b: (b["y"], b["x"]))
 
     for brick in sorted_layout:
@@ -434,9 +389,6 @@ def create_isometric_preview(brick_layout):
 
 
 def create_debug_map_base64(arr):
-    """
-    Returns debug maps so you can inspect depth, edges, masks, and final height map.
-    """
     if arr.dtype == bool:
         img_arr = arr.astype(np.uint8) * 255
     else:
@@ -452,10 +404,6 @@ def create_debug_map_base64(arr):
 
 
 def optimize_row(row_cells, part_type, parts_summary):
-    """
-    Existing optimizer for parts summary and optimized_parts.
-    This only optimizes visible top-level rows into Brick/Plate 1xN.
-    """
     optimized = []
     x = 0
 
@@ -503,39 +451,102 @@ def optimize_row(row_cells, part_type, parts_summary):
     return optimized
 
 
-def add_blender_part(parts, x, y, z_plate, part_type, length, color):
-    """
-    Creates one Blender-ready optimized LEGO part.
+def clamp_blender_detail_level(value):
+    try:
+        level = int(value)
+    except Exception:
+        level = 2
 
-    x, y = grid position in studs
-    z_plate = vertical layer position in plate units
-    width = part length in studs
-    depth = always 1 stud for this version
-    height_plates = 3 for Brick, 1 for Plate
-    """
-    if part_type == "Brick":
-        height_plates = 3
-    else:
-        height_plates = 1
+    if level < 1:
+        level = 1
 
+    if level > 4:
+        level = 4
+
+    return level
+
+
+def get_most_common_color(colors):
+    color_counts = {}
+
+    for color in colors:
+        if color is None:
+            continue
+
+        color_counts[color] = color_counts.get(color, 0) + 1
+
+    if not color_counts:
+        return None
+
+    return max(color_counts.items(), key=lambda item: item[1])[0]
+
+
+def build_blender_detail_maps(height_map, color_name_map, detail_level):
+    """
+    Creates reduced-detail maps for Blender.
+
+    detail_level:
+    1 = full detail, highest object count
+    2 = medium detail, recommended
+    3 = lower detail, faster
+    4 = very low detail, fastest
+
+    For detail level 2, each Blender cell represents a 2x2 area.
+    For detail level 3, each Blender cell represents a 3x3 area.
+    """
+    block_size = detail_level
+
+    blender_height = int(np.ceil(GRID_HEIGHT / block_size))
+    blender_width = int(np.ceil(GRID_WIDTH / block_size))
+
+    reduced_height_map = np.zeros((blender_height, blender_width), dtype=int)
+    reduced_color_map = [[None for _ in range(blender_width)] for _ in range(blender_height)]
+
+    for by in range(blender_height):
+        for bx in range(blender_width):
+            y_start = by * block_size
+            y_end = min((by + 1) * block_size, GRID_HEIGHT)
+
+            x_start = bx * block_size
+            x_end = min((bx + 1) * block_size, GRID_WIDTH)
+
+            block_heights = height_map[y_start:y_end, x_start:x_end]
+            positive_heights = block_heights[block_heights > 0]
+
+            if positive_heights.size == 0:
+                continue
+
+            # Use max height to preserve towers and silhouettes.
+            height_value = int(np.max(positive_heights))
+            reduced_height_map[by][bx] = height_value
+
+            block_colors = []
+            for yy in range(y_start, y_end):
+                for xx in range(x_start, x_end):
+                    if height_map[yy][xx] > 0:
+                        block_colors.append(color_name_map[yy][xx])
+
+            reduced_color_map[by][bx] = get_most_common_color(block_colors)
+
+    return reduced_height_map, reduced_color_map, block_size
+
+
+def add_blender_part(parts, x, y, z_plate, part_type, length, depth, height_plates, color):
     parts.append({
         "x": x,
         "y": y,
         "z_plate": z_plate,
-        "part": f"{part_type} 1x{length}",
+        "part": f"{part_type} {length}x{depth}",
         "part_type": part_type,
         "width": length,
-        "depth": 1,
+        "depth": depth,
         "height_plates": height_plates,
         "color": color,
         "rgb": LEGO_COLORS[color]
     })
 
 
-def optimize_blender_row(row_cells, y, part_type, z_plate):
-    """
-    Optimizes one horizontal row into 1x8, 1x6, 1x4, 1x3, 1x2, 1x1 parts.
-    """
+def optimize_blender_row(row_cells, y, part_type, z_plate, block_size):
     optimized = []
     x = 0
 
@@ -560,13 +571,20 @@ def optimize_blender_row(row_cells, y, part_type, z_plate):
 
         for size in [8, 6, 4, 3, 2, 1]:
             while remaining >= size:
+                if part_type == "Brick":
+                    height_plates = 3
+                else:
+                    height_plates = 1
+
                 add_blender_part(
                     parts=optimized,
-                    x=current_x,
-                    y=y,
+                    x=current_x * block_size,
+                    y=y * block_size,
                     z_plate=z_plate,
                     part_type=part_type,
-                    length=size,
+                    length=size * block_size,
+                    depth=block_size,
+                    height_plates=height_plates,
                     color=color
                 )
 
@@ -578,33 +596,36 @@ def optimize_blender_row(row_cells, y, part_type, z_plate):
     return optimized
 
 
-def create_blender_optimized_parts(height_map, color_name_map):
+def create_blender_optimized_parts(height_map, color_name_map, detail_level=2):
     """
-    Converts the full height map into optimized Blender parts.
+    Converts the height map into optimized Blender parts.
 
-    This is the complex version:
-    - Full 3-plate layers become Brick 1xN parts
-    - Remaining single plate layers become Plate 1xN parts
-    - Runs are optimized into 1x8, 1x6, 1x4, 1x3, 1x2, 1x1
-
-    This reduces Blender object count compared with rendering every cell as a 1x1 cube.
+    The important change:
+    - detail_level reduces the Blender object count.
+    - detail_level=2 means each Blender part represents a 2x2 original grid area.
+    - detail_level=3 means each Blender part represents a 3x3 original grid area.
     """
+    detail_level = clamp_blender_detail_level(detail_level)
+
+    reduced_height_map, reduced_color_map, block_size = build_blender_detail_maps(
+        height_map=height_map,
+        color_name_map=color_name_map,
+        detail_level=detail_level
+    )
+
     blender_parts = []
+    reduced_grid_height = reduced_height_map.shape[0]
+    reduced_grid_width = reduced_height_map.shape[1]
 
-    for y in range(GRID_HEIGHT):
+    for y in range(reduced_grid_height):
 
         # Full brick layers.
-        # Example:
-        # z_plate = 0 means first brick layer from plate 0 to 3
-        # z_plate = 3 means second brick layer from plate 3 to 6
-        # z_plate = 6 means third brick layer from plate 6 to 9
-        # z_plate = 9 means fourth brick layer from plate 9 to 12
         for z_plate in range(0, MAX_HEIGHT_PLATES, 3):
-            row_cells = [None] * GRID_WIDTH
+            row_cells = [None] * reduced_grid_width
 
-            for x in range(GRID_WIDTH):
-                height_plates = int(height_map[y][x])
-                color = color_name_map[y][x]
+            for x in range(reduced_grid_width):
+                height_plates = int(reduced_height_map[y][x])
+                color = reduced_color_map[y][x]
 
                 if color is None:
                     continue
@@ -617,17 +638,18 @@ def create_blender_optimized_parts(height_map, color_name_map):
                     row_cells=row_cells,
                     y=y,
                     part_type="Brick",
-                    z_plate=z_plate
+                    z_plate=z_plate,
+                    block_size=block_size
                 )
             )
 
         # Extra plate layers above full bricks.
         for z_plate in range(MAX_HEIGHT_PLATES):
-            row_cells = [None] * GRID_WIDTH
+            row_cells = [None] * reduced_grid_width
 
-            for x in range(GRID_WIDTH):
-                height_plates = int(height_map[y][x])
-                color = color_name_map[y][x]
+            for x in range(reduced_grid_width):
+                height_plates = int(reduced_height_map[y][x])
+                color = reduced_color_map[y][x]
 
                 if color is None:
                     continue
@@ -637,7 +659,6 @@ def create_blender_optimized_parts(height_map, color_name_map):
 
                 full_brick_height = (height_plates // 3) * 3
 
-                # Only leftover plates above full brick layers.
                 if full_brick_height <= z_plate < height_plates:
                     row_cells[x] = color
 
@@ -646,11 +667,12 @@ def create_blender_optimized_parts(height_map, color_name_map):
                     row_cells=row_cells,
                     y=y,
                     part_type="Plate",
-                    z_plate=z_plate
+                    z_plate=z_plate,
+                    block_size=block_size
                 )
             )
 
-    return blender_parts
+    return blender_parts, block_size
 
 
 @app.get("/")
@@ -662,9 +684,12 @@ def root():
 async def generate_lego_model(data: dict):
     depth_url = data.get("depth_map_url")
     original_url = data.get("original_image_url")
+
+    include_previews = data.get("include_previews", True)
     include_full_layout = data.get("include_full_layout", False)
     include_debug_maps = data.get("include_debug_maps", True)
     include_blender_parts = data.get("include_blender_parts", True)
+    blender_detail_level = clamp_blender_detail_level(data.get("blender_detail_level", 2))
 
     if not depth_url:
         return {"error": "Missing depth_map_url"}
@@ -687,11 +712,8 @@ async def generate_lego_model(data: dict):
 
     original_img = Image.open(BytesIO(original_response.content)).convert("RGB")
 
-    # Clean version for masks and edges.
     original_clean = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
 
-    # Softer color version for LEGO color sampling.
-    # This reduces harsh black/brown sketch-like output.
     original_color = original_clean.filter(ImageFilter.GaussianBlur(radius=0.10))
     original_color = original_color.filter(ImageFilter.EDGE_ENHANCE)
     original_color = original_color.filter(ImageFilter.SHARPEN)
@@ -716,8 +738,6 @@ async def generate_lego_model(data: dict):
     color_summary = {}
     height_summary = {}
 
-    # Stores the selected LEGO color name per x/y cell.
-    # This is required for Blender optimized parts.
     color_name_map = [[None for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
 
     for y in range(GRID_HEIGHT):
@@ -768,13 +788,15 @@ async def generate_lego_model(data: dict):
         optimized_parts.extend(optimize_row(brick_row, "Brick", parts_summary))
         optimized_parts.extend(optimize_row(plate_row, "Plate", parts_summary))
 
-    reference_preview_base64 = create_reference_like_preview(brick_layout)
-    stud_preview_base64 = create_stud_preview(brick_layout)
-    isometric_preview_base64 = create_isometric_preview(brick_layout)
-
     blender_optimized_parts = []
+    blender_block_size = blender_detail_level
+
     if include_blender_parts:
-        blender_optimized_parts = create_blender_optimized_parts(height_map, color_name_map)
+        blender_optimized_parts, blender_block_size = create_blender_optimized_parts(
+            height_map=height_map,
+            color_name_map=color_name_map,
+            detail_level=blender_detail_level
+        )
 
     total_parts = sum(parts_summary.values())
     total_positions = GRID_WIDTH * GRID_HEIGHT
@@ -792,6 +814,8 @@ async def generate_lego_model(data: dict):
         "unique_part_types": len(parts_summary),
         "unique_colors": len(color_summary),
         "blender_optimized_part_count": len(blender_optimized_parts),
+        "blender_detail_level": blender_detail_level,
+        "blender_block_size": blender_block_size,
         "edge_detail_boost": EDGE_DETAIL_BOOST,
         "depth_edge_boost": DEPTH_EDGE_BOOST,
         "window_recess_amount": WINDOW_RECESS_AMOUNT,
@@ -801,7 +825,7 @@ async def generate_lego_model(data: dict):
     }
 
     response = {
-        "message": "Clean LEGO model generated with reduced edge noise, isometric preview, and Blender optimized parts",
+        "message": "LEGO model generated with Blender optimized parts",
         "model_stats": model_stats,
         "grid_size": {
             "width": GRID_WIDTH,
@@ -811,9 +835,6 @@ async def generate_lego_model(data: dict):
         "parts_summary": parts_summary,
         "color_summary": color_summary,
         "height_summary": height_summary,
-        "reference_preview_base64": reference_preview_base64,
-        "stud_preview_base64": stud_preview_base64,
-        "isometric_preview_base64": isometric_preview_base64,
         "optimized_parts": optimized_parts,
         "blender_render_config": {
             "unit": "studs",
@@ -825,9 +846,16 @@ async def generate_lego_model(data: dict):
             "max_height_plates": MAX_HEIGHT_PLATES,
             "part_width_axis": "x",
             "part_depth_axis": "y",
-            "vertical_axis": "z"
+            "vertical_axis": "z",
+            "blender_detail_level": blender_detail_level,
+            "blender_block_size": blender_block_size
         }
     }
+
+    if include_previews:
+        response["reference_preview_base64"] = create_reference_like_preview(brick_layout)
+        response["stud_preview_base64"] = create_stud_preview(brick_layout)
+        response["isometric_preview_base64"] = create_isometric_preview(brick_layout)
 
     if include_blender_parts:
         response["blender_optimized_parts"] = blender_optimized_parts
