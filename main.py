@@ -16,8 +16,9 @@ CELL_SIZE = 3
 # Depth Anything V2 works better with a lower threshold than old MiDaS.
 MIN_DEPTH_VALUE = 8
 
-# Tuned to reduce noisy/sketch-like output.
-EDGE_DETAIL_BOOST = 2
+# Cleaner settings.
+# EDGE_DETAIL_BOOST was 2 before. Now reduced to 1 to remove sketch/noisy look.
+EDGE_DETAIL_BOOST = 1
 DEPTH_EDGE_BOOST = 1
 WINDOW_RECESS_AMOUNT = 1
 BRIGHT_DETAIL_BOOST = 1
@@ -84,6 +85,14 @@ def closest_lego_color(rgb):
 def add_part(parts_summary, part_name, color, quantity=1):
     key = f"{part_name} - {color}"
     parts_summary[key] = parts_summary.get(key, 0) + quantity
+
+
+def lighten(rgb, factor=1.15):
+    return tuple(min(255, int(c * factor)) for c in rgb)
+
+
+def darken(rgb, factor=0.75):
+    return tuple(max(0, int(c * factor)) for c in rgb)
 
 
 def normalize_depth(depth_img):
@@ -159,14 +168,13 @@ def create_sky_mask(original_img):
 def create_dark_recess_mask(original_img):
     """
     Dark windows and doors should be lower/recessed, not raised.
-    Tuned softer to avoid making the whole model too dark.
     """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img).astype(np.uint8)
 
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
 
-    # Slightly stricter threshold to avoid too many shadows becoming holes.
+    # Stricter threshold to avoid turning too many shadows into holes.
     dark_mask = gray < 45
 
     dark_mask_uint8 = dark_mask.astype(np.uint8) * 255
@@ -179,8 +187,7 @@ def create_dark_recess_mask(original_img):
 
 def create_bright_detail_mask(original_img):
     """
-    Bright stone/marble details like the entrance arch
-    should be slightly raised.
+    Bright stone/marble details like the entrance arch should be slightly raised.
     """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img).astype(np.uint8)
@@ -340,6 +347,89 @@ def create_stud_preview(brick_layout):
             fill=stud_rgb,
             outline=(110, 110, 110)
         )
+
+    return image_to_base64(img)
+
+
+def draw_iso_brick(draw, sx, sy, height, rgb):
+    """
+    Draws a small pseudo-3D LEGO-like block.
+    This is not real 3D, but it gives a much better preview than flat rectangles.
+    """
+    w = 4
+    d = 3
+    h = max(1, int(height * 1.2))
+
+    top = [
+        (sx, sy - h),
+        (sx + w, sy - h - d),
+        (sx + 2 * w, sy - h),
+        (sx + w, sy - h + d),
+    ]
+
+    left = [
+        (sx, sy - h),
+        (sx + w, sy - h + d),
+        (sx + w, sy + d),
+        (sx, sy),
+    ]
+
+    right = [
+        (sx + w, sy - h + d),
+        (sx + 2 * w, sy - h),
+        (sx + 2 * w, sy),
+        (sx + w, sy + d),
+    ]
+
+    top_color = lighten(rgb, 1.18)
+    left_color = darken(rgb, 0.78)
+    right_color = darken(rgb, 0.62)
+
+    draw.polygon(left, fill=left_color)
+    draw.polygon(right, fill=right_color)
+    draw.polygon(top, fill=top_color)
+
+    # Small top stud highlight
+    cx = sx + w
+    cy = sy - h
+    stud_color = lighten(rgb, 1.28)
+    draw.ellipse(
+        [cx - 1, cy - 1, cx + 1, cy + 1],
+        fill=stud_color
+    )
+
+
+def create_isometric_preview(brick_layout):
+    """
+    Creates a pseudo-3D isometric preview.
+    This helps the output look more like a physical LEGO model.
+    """
+    scale_x = 4
+    scale_y = 3
+
+    img_width = GRID_WIDTH * scale_x + 80
+    img_height = GRID_HEIGHT * scale_y + 120
+
+    img = Image.new("RGB", (img_width, img_height), "white")
+    draw = ImageDraw.Draw(img)
+
+    # Draw from back to front so closer bricks appear on top.
+    sorted_layout = sorted(brick_layout, key=lambda b: (b["y"], b["x"]))
+
+    for brick in sorted_layout:
+        x = brick["x"]
+        y = brick["y"]
+        color = brick["color"]
+        height = brick["height_plates"]
+
+        rgb = LEGO_COLORS.get(color, LEGO_COLORS["light_bluish_gray"])
+
+        sx = 40 + x * scale_x
+        sy = 60 + y * scale_y
+
+        draw_iso_brick(draw, sx, sy, height, rgb)
+
+    img = img.filter(ImageFilter.SHARPEN)
 
     return image_to_base64(img)
 
@@ -520,6 +610,7 @@ async def generate_lego_model(data: dict):
 
     reference_preview_base64 = create_reference_like_preview(brick_layout)
     stud_preview_base64 = create_stud_preview(brick_layout)
+    isometric_preview_base64 = create_isometric_preview(brick_layout)
 
     total_parts = sum(parts_summary.values())
     total_positions = GRID_WIDTH * GRID_HEIGHT
@@ -545,7 +636,7 @@ async def generate_lego_model(data: dict):
     }
 
     response = {
-        "message": "Clean LEGO model generated with reduced edge noise",
+        "message": "Clean LEGO model generated with reduced edge noise and isometric preview",
         "model_stats": model_stats,
         "grid_size": {
             "width": GRID_WIDTH,
@@ -557,6 +648,7 @@ async def generate_lego_model(data: dict):
         "height_summary": height_summary,
         "reference_preview_base64": reference_preview_base64,
         "stud_preview_base64": stud_preview_base64,
+        "isometric_preview_base64": isometric_preview_base64,
         "optimized_parts": optimized_parts
     }
 
