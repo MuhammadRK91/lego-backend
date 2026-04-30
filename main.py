@@ -1,17 +1,17 @@
 from fastapi import FastAPI
 import requests
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 import numpy as np
 from io import BytesIO
 import base64
-import math
 
 app = FastAPI()
 
-GRID_WIDTH = 96
-GRID_HEIGHT = 64
+GRID_WIDTH = 192
+GRID_HEIGHT = 128
 MAX_HEIGHT_PLATES = 12
-CELL_SIZE = 8
+CELL_SIZE = 4
+MIN_DEPTH_VALUE = 18
 
 LEGO_COLORS = {
     "white": (242, 243, 242),
@@ -47,11 +47,7 @@ def closest_lego_color(rgb):
 
     for name, color in LEGO_COLORS.items():
         cr, cg, cb = color
-        distance = (
-            (int(r) - cr) ** 2 +
-            (int(g) - cg) ** 2 +
-            (int(b) - cb) ** 2
-        )
+        distance = (int(r) - cr) ** 2 + (int(g) - cg) ** 2 + (int(b) - cb) ** 2
 
         if distance < best_distance:
             best_distance = distance
@@ -69,7 +65,7 @@ def smooth_height_map(height_map):
 
     for y in range(height_map.shape[0]):
         for x in range(height_map.shape[1]):
-            region = padded[y:y+3, x:x+3]
+            region = padded[y:y + 3, x:x + 3]
             smoothed[y, x] = round(np.mean(region))
 
     return smoothed.astype(int)
@@ -80,17 +76,13 @@ def boost_edges(depth_arr, height_map):
     edges = edges / max(edges.max(), 1)
 
     boosted = height_map.copy()
-    boosted[edges > 0.18] += 1
+    boosted[edges > 0.20] += 1
     boosted = np.clip(boosted, 0, MAX_HEIGHT_PLATES)
 
     return boosted.astype(int)
 
-def create_top_preview(brick_layout):
-    img = Image.new(
-        "RGB",
-        (GRID_WIDTH * CELL_SIZE, GRID_HEIGHT * CELL_SIZE),
-        "white"
-    )
+def create_reference_like_preview(brick_layout):
+    img = Image.new("RGB", (GRID_WIDTH * CELL_SIZE, GRID_HEIGHT * CELL_SIZE), "white")
     draw = ImageDraw.Draw(img)
 
     for brick in brick_layout:
@@ -100,88 +92,53 @@ def create_top_preview(brick_layout):
         height = brick["height_plates"]
 
         rgb = LEGO_COLORS.get(color, LEGO_COLORS["light_bluish_gray"])
-
-        shade = max(0.55, 1 - (height / MAX_HEIGHT_PLATES) * 0.30)
+        shade = max(0.72, 1 - (height / MAX_HEIGHT_PLATES) * 0.22)
         shaded_rgb = tuple(int(c * shade) for c in rgb)
 
         x1 = x * CELL_SIZE
         y1 = y * CELL_SIZE
-        x2 = x1 + CELL_SIZE - 1
-        y2 = y1 + CELL_SIZE - 1
+        x2 = x1 + CELL_SIZE
+        y2 = y1 + CELL_SIZE
 
         draw.rectangle([x1, y1, x2, y2], fill=shaded_rgb)
-        draw.rectangle([x1, y1, x2, y2], outline=(225, 225, 225))
+
+    img = img.resize((GRID_WIDTH * 6, GRID_HEIGHT * 6), Image.Resampling.BICUBIC)
+    img = img.filter(ImageFilter.SHARPEN)
 
     return image_to_base64(img)
 
-def create_isometric_preview(brick_layout):
-    tile_w = 10
-    tile_h = 6
-    height_step = 2
-
-    canvas_w = GRID_WIDTH * tile_w + GRID_HEIGHT * tile_w + 200
-    canvas_h = GRID_HEIGHT * tile_h + GRID_WIDTH * tile_h + MAX_HEIGHT_PLATES * height_step + 200
-
-    img = Image.new("RGB", (canvas_w, canvas_h), (245, 245, 245))
+def create_stud_preview(brick_layout):
+    cell_size = 8
+    img = Image.new("RGB", (GRID_WIDTH * cell_size, GRID_HEIGHT * cell_size), "white")
     draw = ImageDraw.Draw(img)
 
-    offset_x = canvas_w // 2
-    offset_y = 80
-
-    sorted_bricks = sorted(brick_layout, key=lambda b: b["x"] + b["y"])
-
-    for brick in sorted_bricks:
+    for brick in brick_layout:
         x = brick["x"]
         y = brick["y"]
-        h = brick["height_plates"]
         color = brick["color"]
+        height = brick["height_plates"]
 
         rgb = LEGO_COLORS.get(color, LEGO_COLORS["light_bluish_gray"])
+        shade = max(0.65, 1 - (height / MAX_HEIGHT_PLATES) * 0.25)
+        shaded_rgb = tuple(int(c * shade) for c in rgb)
 
-        iso_x = offset_x + (x - y) * tile_w // 2
-        iso_y = offset_y + (x + y) * tile_h // 2 - h * height_step
+        x1 = x * cell_size
+        y1 = y * cell_size
+        x2 = x1 + cell_size - 1
+        y2 = y1 + cell_size - 1
 
-        top = [
-            (iso_x, iso_y),
-            (iso_x + tile_w // 2, iso_y + tile_h // 2),
-            (iso_x, iso_y + tile_h),
-            (iso_x - tile_w // 2, iso_y + tile_h // 2),
-        ]
+        draw.rectangle([x1, y1, x2, y2], fill=shaded_rgb)
+        draw.rectangle([x1, y1, x2, y2], outline=(210, 210, 210))
 
-        left = [
-            (iso_x - tile_w // 2, iso_y + tile_h // 2),
-            (iso_x, iso_y + tile_h),
-            (iso_x, iso_y + tile_h + h * height_step),
-            (iso_x - tile_w // 2, iso_y + tile_h // 2 + h * height_step),
-        ]
+        stud_radius = 2
+        cx = x1 + cell_size // 2
+        cy = y1 + cell_size // 2
+        stud_rgb = tuple(min(255, int(c * 1.12)) for c in shaded_rgb)
 
-        right = [
-            (iso_x + tile_w // 2, iso_y + tile_h // 2),
-            (iso_x, iso_y + tile_h),
-            (iso_x, iso_y + tile_h + h * height_step),
-            (iso_x + tile_w // 2, iso_y + tile_h // 2 + h * height_step),
-        ]
-
-        left_rgb = tuple(max(0, int(c * 0.65)) for c in rgb)
-        right_rgb = tuple(max(0, int(c * 0.80)) for c in rgb)
-        top_rgb = rgb
-
-        draw.polygon(left, fill=left_rgb)
-        draw.polygon(right, fill=right_rgb)
-        draw.polygon(top, fill=top_rgb)
-
-        draw.line(top + [top[0]], fill=(60, 60, 60), width=1)
-
-        stud_r = 2
         draw.ellipse(
-            [
-                iso_x - stud_r,
-                iso_y + tile_h // 2 - stud_r,
-                iso_x + stud_r,
-                iso_y + tile_h // 2 + stud_r,
-            ],
-            fill=tuple(min(255, int(c * 1.15)) for c in rgb),
-            outline=(80, 80, 80),
+            [cx - stud_radius, cy - stud_radius, cx + stud_radius, cy + stud_radius],
+            fill=stud_rgb,
+            outline=(90, 90, 90)
         )
 
     return image_to_base64(img)
@@ -200,7 +157,6 @@ def optimize_row(row_cells, part_type, parts_summary):
         color = cell["color"]
         quantity = cell["quantity"]
         start_x = x
-
         run_length = 1
 
         while (
@@ -242,6 +198,7 @@ def root():
 async def generate_lego_model(data: dict):
     depth_url = data.get("depth_map_url")
     original_url = data.get("original_image_url")
+    include_full_layout = data.get("include_full_layout", False)
 
     if not depth_url:
         return {"error": "Missing depth_map_url"}
@@ -254,17 +211,21 @@ async def generate_lego_model(data: dict):
 
     depth_img = Image.open(BytesIO(depth_response.content)).convert("L")
     depth_img = depth_img.resize((GRID_WIDTH, GRID_HEIGHT))
-    depth_img = depth_img.filter(ImageFilter.GaussianBlur(radius=0.6))
+    depth_img = depth_img.filter(ImageFilter.GaussianBlur(radius=0.35))
 
     original_img = Image.open(BytesIO(original_response.content)).convert("RGB")
     original_img = original_img.resize((GRID_WIDTH, GRID_HEIGHT))
+    original_img = ImageEnhance.Color(original_img).enhance(1.15)
+    original_img = ImageEnhance.Contrast(original_img).enhance(1.10)
 
     depth_arr = np.array(depth_img)
     color_arr = np.array(original_img)
 
     height_map = np.round((depth_arr / 255) * MAX_HEIGHT_PLATES).astype(int)
+    height_map[depth_arr < MIN_DEPTH_VALUE] = 0
     height_map = smooth_height_map(height_map)
     height_map = boost_edges(depth_arr, height_map)
+    height_map[depth_arr < MIN_DEPTH_VALUE] = 0
 
     brick_layout = []
     optimized_parts = []
@@ -318,8 +279,8 @@ async def generate_lego_model(data: dict):
         optimized_parts.extend(optimize_row(brick_row, "Brick", parts_summary))
         optimized_parts.extend(optimize_row(plate_row, "Plate", parts_summary))
 
-    preview_image_base64 = create_top_preview(brick_layout)
-    isometric_preview_base64 = create_isometric_preview(brick_layout)
+    reference_preview_base64 = create_reference_like_preview(brick_layout)
+    stud_preview_base64 = create_stud_preview(brick_layout)
 
     total_parts = sum(parts_summary.values())
     total_positions = GRID_WIDTH * GRID_HEIGHT
@@ -338,8 +299,8 @@ async def generate_lego_model(data: dict):
         "unique_colors": len(color_summary)
     }
 
-    return {
-        "message": "Advanced LEGO model generated",
+    response = {
+        "message": "High-detail LEGO model generated",
         "model_stats": model_stats,
         "grid_size": {
             "width": GRID_WIDTH,
@@ -349,8 +310,12 @@ async def generate_lego_model(data: dict):
         "parts_summary": parts_summary,
         "color_summary": color_summary,
         "height_summary": height_summary,
-        "preview_image_base64": preview_image_base64,
-        "isometric_preview_base64": isometric_preview_base64,
-        "brick_layout": brick_layout,
+        "reference_preview_base64": reference_preview_base64,
+        "stud_preview_base64": stud_preview_base64,
         "optimized_parts": optimized_parts
     }
+
+    if include_full_layout:
+        response["brick_layout"] = brick_layout
+
+    return response
