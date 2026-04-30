@@ -16,10 +16,10 @@ CELL_SIZE = 3
 # Depth Anything V2 works better with a lower threshold than old MiDaS.
 MIN_DEPTH_VALUE = 8
 
-# Detail controls
-EDGE_DETAIL_BOOST = 3
+# Tuned to reduce noisy/sketch-like output.
+EDGE_DETAIL_BOOST = 2
 DEPTH_EDGE_BOOST = 1
-WINDOW_RECESS_AMOUNT = 2
+WINDOW_RECESS_AMOUNT = 1
 BRIGHT_DETAIL_BOOST = 1
 
 LEGO_COLORS = {
@@ -108,8 +108,8 @@ def normalize_depth(depth_img):
 
 def create_edge_map(original_img):
     """
-    Extracts architectural detail from the original image:
-    windows, arch lines, tower grooves, crenellations, stone texture.
+    Extracts architectural detail from the original image.
+    Tuned to avoid too much noisy stone texture.
     """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img)
@@ -117,10 +117,16 @@ def create_edge_map(original_img):
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
     gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
-    edges = cv2.Canny(gray, 55, 135)
+    # Higher thresholds = cleaner, less noisy edge map.
+    edges = cv2.Canny(gray, 80, 180)
 
-    kernel = np.ones((2, 2), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=1)
+    # Remove tiny noisy edge specks first.
+    kernel_open = np.ones((2, 2), np.uint8)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_OPEN, kernel_open)
+
+    # Light dilation keeps important architecture lines visible.
+    kernel_dilate = np.ones((2, 2), np.uint8)
+    edges = cv2.dilate(edges, kernel_dilate, iterations=1)
 
     return edges.astype(np.float32) / 255.0
 
@@ -153,12 +159,15 @@ def create_sky_mask(original_img):
 def create_dark_recess_mask(original_img):
     """
     Dark windows and doors should be lower/recessed, not raised.
+    Tuned softer to avoid making the whole model too dark.
     """
     img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
     arr = np.array(img).astype(np.uint8)
 
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-    dark_mask = gray < 55
+
+    # Slightly stricter threshold to avoid too many shadows becoming holes.
+    dark_mask = gray < 45
 
     dark_mask_uint8 = dark_mask.astype(np.uint8) * 255
     kernel = np.ones((2, 2), np.uint8)
@@ -181,7 +190,7 @@ def create_bright_detail_mask(original_img):
     r = arr[:, :, 0]
     b = arr[:, :, 2]
 
-    bright_mask = (gray > 180) & ~((b > 130) & (b > r + 20))
+    bright_mask = (gray > 185) & ~((b > 130) & (b > r + 20))
 
     bright_mask_uint8 = bright_mask.astype(np.uint8) * 255
     kernel = np.ones((2, 2), np.uint8)
@@ -224,7 +233,6 @@ def boost_depth_edges(depth_arr, height_map):
 
 def build_improved_height_map(depth_img, original_img):
     """
-    Main improvement:
     Depth Anything V2 = large shape
     Original image edge map = fine architectural details
     Dark mask = recessed windows/doors
@@ -246,7 +254,7 @@ def build_improved_height_map(depth_img, original_img):
 
     height_map = boost_depth_edges(depth_arr, height_map)
 
-    # Add small architectural detail from original image.
+    # Add architectural detail from original image, now less aggressively.
     height_map = height_map + np.round(edge_map * EDGE_DETAIL_BOOST).astype(int)
 
     # Recess dark windows/doors.
@@ -270,7 +278,7 @@ def build_improved_height_map(depth_img, original_img):
 
 
 def add_depth_shading(rgb, height_plates):
-    shade = max(0.68, 1 - (height_plates / MAX_HEIGHT_PLATES) * 0.25)
+    shade = max(0.72, 1 - (height_plates / MAX_HEIGHT_PLATES) * 0.18)
     return tuple(int(c * shade) for c in rgb)
 
 
@@ -325,12 +333,12 @@ def create_stud_preview(brick_layout):
         stud_radius = 1
         cx = x1 + cell_size // 2
         cy = y1 + cell_size // 2
-        stud_rgb = tuple(min(255, int(c * 1.15)) for c in shaded_rgb)
+        stud_rgb = tuple(min(255, int(c * 1.12)) for c in shaded_rgb)
 
         draw.ellipse(
             [cx - stud_radius, cy - stud_radius, cx + stud_radius, cy + stud_radius],
             fill=stud_rgb,
-            outline=(90, 90, 90)
+            outline=(110, 110, 110)
         )
 
     return image_to_base64(img)
@@ -438,13 +446,14 @@ async def generate_lego_model(data: dict):
     # Clean version for masks and edges.
     original_clean = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.LANCZOS)
 
-    # Enhanced version for LEGO color sampling.
-    original_color = original_clean.filter(ImageFilter.GaussianBlur(radius=0.15))
-    original_color = original_color.filter(ImageFilter.EDGE_ENHANCE_MORE)
+    # Softer color version for LEGO color sampling.
+    # This reduces harsh black/brown sketch-like output.
+    original_color = original_clean.filter(ImageFilter.GaussianBlur(radius=0.10))
+    original_color = original_color.filter(ImageFilter.EDGE_ENHANCE)
     original_color = original_color.filter(ImageFilter.SHARPEN)
-    original_color = ImageEnhance.Color(original_color).enhance(1.12)
-    original_color = ImageEnhance.Contrast(original_color).enhance(1.15)
-    original_color = ImageEnhance.Sharpness(original_color).enhance(1.25)
+    original_color = ImageEnhance.Color(original_color).enhance(1.08)
+    original_color = ImageEnhance.Contrast(original_color).enhance(1.05)
+    original_color = ImageEnhance.Sharpness(original_color).enhance(1.10)
 
     color_arr = np.array(original_color)
 
@@ -531,11 +540,12 @@ async def generate_lego_model(data: dict):
         "depth_edge_boost": DEPTH_EDGE_BOOST,
         "window_recess_amount": WINDOW_RECESS_AMOUNT,
         "bright_detail_boost": BRIGHT_DETAIL_BOOST,
-        "min_depth_value": MIN_DEPTH_VALUE
+        "min_depth_value": MIN_DEPTH_VALUE,
+        "canny_thresholds": "80,180"
     }
 
     response = {
-        "message": "High-detail LEGO model generated with depth, edge, mask, and detail enhancement",
+        "message": "Clean LEGO model generated with reduced edge noise",
         "model_stats": model_stats,
         "grid_size": {
             "width": GRID_WIDTH,
