@@ -7,32 +7,46 @@ import base64
 
 app = FastAPI()
 
-GRID_WIDTH = 192
-GRID_HEIGHT = 128
+GRID_WIDTH = 256
+GRID_HEIGHT = 192
 MAX_HEIGHT_PLATES = 12
-CELL_SIZE = 4
-MIN_DEPTH_VALUE = 18
+CELL_SIZE = 3
+MIN_DEPTH_VALUE = 15
 
 LEGO_COLORS = {
     "white": (242, 243, 242),
+    "very_light_gray": (230, 230, 225),
     "light_bluish_gray": (160, 165, 169),
+    "medium_gray": (130, 136, 140),
     "dark_bluish_gray": (99, 95, 98),
     "black": (27, 42, 52),
+
     "tan": (215, 197, 153),
+    "light_tan": (240, 220, 180),
     "dark_tan": (149, 138, 115),
+    "sand_yellow": (160, 140, 90),
+
     "reddish_brown": (88, 42, 18),
     "brown": (124, 80, 58),
+    "dark_brown": (60, 30, 10),
+
     "dark_red": (123, 46, 47),
     "red": (196, 40, 28),
+    "dark_orange": (160, 95, 40),
+    "orange": (218, 133, 64),
+
     "dark_blue": (0, 32, 96),
     "blue": (13, 105, 171),
+    "medium_blue": (90, 147, 219),
     "sand_blue": (96, 116, 161),
+
     "dark_green": (0, 69, 26),
     "green": (35, 120, 65),
+    "sand_green": (120, 144, 130),
     "olive_green": (155, 154, 90),
     "lime": (187, 233, 11),
+
     "yellow": (245, 205, 47),
-    "orange": (218, 133, 64),
 }
 
 def image_to_base64(img):
@@ -76,10 +90,14 @@ def boost_edges(depth_arr, height_map):
     edges = edges / max(edges.max(), 1)
 
     boosted = height_map.copy()
-    boosted[edges > 0.20] += 1
+    boosted[edges > 0.16] += 1
     boosted = np.clip(boosted, 0, MAX_HEIGHT_PLATES)
 
     return boosted.astype(int)
+
+def add_depth_shading(rgb, height_plates):
+    shade = max(0.68, 1 - (height_plates / MAX_HEIGHT_PLATES) * 0.25)
+    return tuple(int(c * shade) for c in rgb)
 
 def create_reference_like_preview(brick_layout):
     img = Image.new("RGB", (GRID_WIDTH * CELL_SIZE, GRID_HEIGHT * CELL_SIZE), "white")
@@ -92,8 +110,7 @@ def create_reference_like_preview(brick_layout):
         height = brick["height_plates"]
 
         rgb = LEGO_COLORS.get(color, LEGO_COLORS["light_bluish_gray"])
-        shade = max(0.72, 1 - (height / MAX_HEIGHT_PLATES) * 0.22)
-        shaded_rgb = tuple(int(c * shade) for c in rgb)
+        shaded_rgb = add_depth_shading(rgb, height)
 
         x1 = x * CELL_SIZE
         y1 = y * CELL_SIZE
@@ -102,13 +119,13 @@ def create_reference_like_preview(brick_layout):
 
         draw.rectangle([x1, y1, x2, y2], fill=shaded_rgb)
 
-    img = img.resize((GRID_WIDTH * 6, GRID_HEIGHT * 6), Image.Resampling.BICUBIC)
+    img = img.resize((GRID_WIDTH * 4, GRID_HEIGHT * 4), Image.Resampling.BICUBIC)
     img = img.filter(ImageFilter.SHARPEN)
 
     return image_to_base64(img)
 
 def create_stud_preview(brick_layout):
-    cell_size = 8
+    cell_size = 6
     img = Image.new("RGB", (GRID_WIDTH * cell_size, GRID_HEIGHT * cell_size), "white")
     draw = ImageDraw.Draw(img)
 
@@ -119,8 +136,7 @@ def create_stud_preview(brick_layout):
         height = brick["height_plates"]
 
         rgb = LEGO_COLORS.get(color, LEGO_COLORS["light_bluish_gray"])
-        shade = max(0.65, 1 - (height / MAX_HEIGHT_PLATES) * 0.25)
-        shaded_rgb = tuple(int(c * shade) for c in rgb)
+        shaded_rgb = add_depth_shading(rgb, height)
 
         x1 = x * cell_size
         y1 = y * cell_size
@@ -128,12 +144,12 @@ def create_stud_preview(brick_layout):
         y2 = y1 + cell_size - 1
 
         draw.rectangle([x1, y1, x2, y2], fill=shaded_rgb)
-        draw.rectangle([x1, y1, x2, y2], outline=(210, 210, 210))
+        draw.rectangle([x1, y1, x2, y2], outline=(215, 215, 215))
 
-        stud_radius = 2
+        stud_radius = 1
         cx = x1 + cell_size // 2
         cy = y1 + cell_size // 2
-        stud_rgb = tuple(min(255, int(c * 1.12)) for c in shaded_rgb)
+        stud_rgb = tuple(min(255, int(c * 1.15)) for c in shaded_rgb)
 
         draw.ellipse(
             [cx - stud_radius, cy - stud_radius, cx + stud_radius, cy + stud_radius],
@@ -210,13 +226,17 @@ async def generate_lego_model(data: dict):
     original_response = requests.get(original_url)
 
     depth_img = Image.open(BytesIO(depth_response.content)).convert("L")
-    depth_img = depth_img.resize((GRID_WIDTH, GRID_HEIGHT))
-    depth_img = depth_img.filter(ImageFilter.GaussianBlur(radius=0.35))
+    depth_img = depth_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.BICUBIC)
+    depth_img = depth_img.filter(ImageFilter.GaussianBlur(radius=0.25))
 
     original_img = Image.open(BytesIO(original_response.content)).convert("RGB")
-    original_img = original_img.resize((GRID_WIDTH, GRID_HEIGHT))
-    original_img = ImageEnhance.Color(original_img).enhance(1.15)
-    original_img = ImageEnhance.Contrast(original_img).enhance(1.10)
+    original_img = original_img.resize((GRID_WIDTH, GRID_HEIGHT), Image.Resampling.BICUBIC)
+    original_img = original_img.filter(ImageFilter.GaussianBlur(radius=0.35))
+    original_img = original_img.filter(ImageFilter.EDGE_ENHANCE_MORE)
+    original_img = original_img.filter(ImageFilter.SHARPEN)
+    original_img = ImageEnhance.Color(original_img).enhance(1.18)
+    original_img = ImageEnhance.Contrast(original_img).enhance(1.18)
+    original_img = ImageEnhance.Sharpness(original_img).enhance(1.35)
 
     depth_arr = np.array(depth_img)
     color_arr = np.array(original_img)
