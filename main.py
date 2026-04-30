@@ -6,8 +6,8 @@ from io import BytesIO
 
 app = FastAPI()
 
-GRID_WIDTH = 48
-GRID_HEIGHT = 32
+GRID_WIDTH = 96
+GRID_HEIGHT = 64
 MAX_HEIGHT_PLATES = 12
 
 LEGO_COLORS = {
@@ -19,17 +19,18 @@ LEGO_COLORS = {
     "green": (35, 120, 65),
     "tan": (215, 197, 153),
     "reddish_brown": (88, 42, 18),
-    "dark_blue": (0, 32, 96)
+    "dark_blue": (0, 32, 96),
 }
 
 def closest_lego_color(rgb):
     r, g, b = rgb
     best_name = "light_bluish_gray"
-    best_distance = 999999
+    best_distance = float("inf")
 
     for name, color in LEGO_COLORS.items():
         cr, cg, cb = color
-        distance = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2
+        distance = (int(r) - cr) ** 2 + (int(g) - cg) ** 2 + (int(b) - cb) ** 2
+
         if distance < best_distance:
             best_distance = distance
             best_name = name
@@ -52,13 +53,16 @@ def optimize_row(row_cells, part_type, parts_summary):
             continue
 
         color = cell["color"]
+        quantity = cell["quantity"]
         start_x = x
 
         run_length = 1
+
         while (
             x + run_length < len(row_cells)
             and row_cells[x + run_length] is not None
             and row_cells[x + run_length]["color"] == color
+            and row_cells[x + run_length]["quantity"] == quantity
         ):
             run_length += 1
 
@@ -68,13 +72,14 @@ def optimize_row(row_cells, part_type, parts_summary):
         for size in [4, 3, 2, 1]:
             while remaining >= size:
                 part_name = f"{part_type} 1x{size}"
-                add_part(parts_summary, part_name, color)
+                add_part(parts_summary, part_name, color, quantity)
 
                 optimized.append({
                     "x": current_x,
                     "y": cell["y"],
                     "part": part_name,
-                    "color": color
+                    "color": color,
+                    "quantity": quantity
                 })
 
                 current_x += size
@@ -93,10 +98,19 @@ async def generate_lego_model(data: dict):
     depth_url = data.get("depth_map_url")
     original_url = data.get("original_image_url")
 
-    depth_img = Image.open(BytesIO(requests.get(depth_url).content)).convert("L")
+    if not depth_url:
+        return {"error": "Missing depth_map_url"}
+
+    if not original_url:
+        return {"error": "Missing original_image_url"}
+
+    depth_response = requests.get(depth_url)
+    original_response = requests.get(original_url)
+
+    depth_img = Image.open(BytesIO(depth_response.content)).convert("L")
     depth_img = depth_img.resize((GRID_WIDTH, GRID_HEIGHT))
 
-    original_img = Image.open(BytesIO(requests.get(original_url).content)).convert("RGB")
+    original_img = Image.open(BytesIO(original_response.content)).convert("RGB")
     original_img = original_img.resize((GRID_WIDTH, GRID_HEIGHT))
 
     depth_arr = np.array(depth_img)
