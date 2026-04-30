@@ -30,12 +30,59 @@ def closest_lego_color(rgb):
     for name, color in LEGO_COLORS.items():
         cr, cg, cb = color
         distance = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2
-
         if distance < best_distance:
             best_distance = distance
             best_name = name
 
     return best_name
+
+def add_part(parts_summary, part_name, color, quantity=1):
+    key = f"{part_name} - {color}"
+    parts_summary[key] = parts_summary.get(key, 0) + quantity
+
+def optimize_row(row_cells, part_type, parts_summary):
+    optimized = []
+    x = 0
+
+    while x < len(row_cells):
+        cell = row_cells[x]
+
+        if cell is None:
+            x += 1
+            continue
+
+        color = cell["color"]
+        start_x = x
+
+        run_length = 1
+        while (
+            x + run_length < len(row_cells)
+            and row_cells[x + run_length] is not None
+            and row_cells[x + run_length]["color"] == color
+        ):
+            run_length += 1
+
+        remaining = run_length
+        current_x = start_x
+
+        for size in [4, 3, 2, 1]:
+            while remaining >= size:
+                part_name = f"{part_type} 1x{size}"
+                add_part(parts_summary, part_name, color)
+
+                optimized.append({
+                    "x": current_x,
+                    "y": cell["y"],
+                    "part": part_name,
+                    "color": color
+                })
+
+                current_x += size
+                remaining -= size
+
+        x = start_x + run_length
+
+    return optimized
 
 @app.get("/")
 def root():
@@ -58,9 +105,13 @@ async def generate_lego_model(data: dict):
     height_map = np.round((depth_arr / 255) * MAX_HEIGHT_PLATES).astype(int)
 
     brick_layout = []
+    optimized_parts = []
     parts_summary = {}
 
     for y in range(GRID_HEIGHT):
+        brick_row = [None] * GRID_WIDTH
+        plate_row = [None] * GRID_WIDTH
+
         for x in range(GRID_WIDTH):
             height_plates = int(height_map[y][x])
 
@@ -71,25 +122,36 @@ async def generate_lego_model(data: dict):
                 full_bricks = height_plates // 3
                 extra_plates = height_plates % 3
 
-                if full_bricks > 0:
-                    key = f"Brick 1x1 - {color}"
-                    parts_summary[key] = parts_summary.get(key, 0) + full_bricks
-
-                if extra_plates > 0:
-                    key = f"Plate 1x1 - {color}"
-                    parts_summary[key] = parts_summary.get(key, 0) + extra_plates
-
                 brick_layout.append({
                     "x": x,
                     "y": y,
                     "height_plates": height_plates,
-                    "full_bricks_1x1": full_bricks,
-                    "extra_plates_1x1": extra_plates,
+                    "full_bricks": full_bricks,
+                    "extra_plates": extra_plates,
                     "color": color
                 })
 
+                if full_bricks > 0:
+                    brick_row[x] = {
+                        "x": x,
+                        "y": y,
+                        "color": color,
+                        "quantity": full_bricks
+                    }
+
+                if extra_plates > 0:
+                    plate_row[x] = {
+                        "x": x,
+                        "y": y,
+                        "color": color,
+                        "quantity": extra_plates
+                    }
+
+        optimized_parts.extend(optimize_row(brick_row, "Brick", parts_summary))
+        optimized_parts.extend(optimize_row(plate_row, "Plate", parts_summary))
+
     return {
-        "message": "LEGO colored brick layout generated",
+        "message": "LEGO optimized colored brick layout generated",
         "grid_size": {
             "width": GRID_WIDTH,
             "height": GRID_HEIGHT
@@ -97,5 +159,6 @@ async def generate_lego_model(data: dict):
         "max_height_plates": MAX_HEIGHT_PLATES,
         "used_positions": len(brick_layout),
         "parts_summary": parts_summary,
-        "brick_layout": brick_layout
+        "brick_layout": brick_layout,
+        "optimized_parts": optimized_parts
     }
