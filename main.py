@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 import numpy as np
 from io import BytesIO
+import base64
 
 app = FastAPI()
 
@@ -40,6 +41,35 @@ def closest_lego_color(rgb):
 def add_part(parts_summary, part_name, color, quantity=1):
     key = f"{part_name} - {color}"
     parts_summary[key] = parts_summary.get(key, 0) + quantity
+
+def create_preview_image(brick_layout):
+    cell_size = 8
+    img = Image.new("RGB", (GRID_WIDTH * cell_size, GRID_HEIGHT * cell_size), "white")
+    draw = ImageDraw.Draw(img)
+
+    for brick in brick_layout:
+        x = brick["x"]
+        y = brick["y"]
+        color = brick["color"]
+        height = brick["height_plates"]
+
+        rgb = LEGO_COLORS.get(color, LEGO_COLORS["light_bluish_gray"])
+
+        # small height effect: taller bricks appear slightly darker
+        shade = max(0.55, 1 - (height / MAX_HEIGHT_PLATES) * 0.35)
+        shaded_rgb = tuple(int(c * shade) for c in rgb)
+
+        x1 = x * cell_size
+        y1 = y * cell_size
+        x2 = x1 + cell_size - 1
+        y2 = y1 + cell_size - 1
+
+        draw.rectangle([x1, y1, x2, y2], fill=shaded_rgb)
+        draw.rectangle([x1, y1, x2, y2], outline=(230, 230, 230))
+
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 def optimize_row(row_cells, part_type, parts_summary):
     optimized = []
@@ -164,6 +194,8 @@ async def generate_lego_model(data: dict):
         optimized_parts.extend(optimize_row(brick_row, "Brick", parts_summary))
         optimized_parts.extend(optimize_row(plate_row, "Plate", parts_summary))
 
+    preview_image_base64 = create_preview_image(brick_layout)
+
     return {
         "message": "LEGO optimized colored brick layout generated",
         "grid_size": {
@@ -173,6 +205,7 @@ async def generate_lego_model(data: dict):
         "max_height_plates": MAX_HEIGHT_PLATES,
         "used_positions": len(brick_layout),
         "parts_summary": parts_summary,
+        "preview_image_base64": preview_image_base64,
         "brick_layout": brick_layout,
         "optimized_parts": optimized_parts
     }
