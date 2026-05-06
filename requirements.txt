@@ -1,7 +1,3 @@
 fastapi
 uvicorn
-pillow
-numpy
-requests
-matplotlib
-opencv-python-headless
+
