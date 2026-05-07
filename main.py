@@ -1422,6 +1422,7 @@ def generate_image_geometry(image_url, width=48, height=48, part_name="Plate 1x1
                 "color": color_name,
                 "rebrickable_color_id": color_data.get("rebrickable_color_id"),
                 "rebrickable_color_name": color_data.get("rebrickable_color_name"),
+                "rebrickable_color_rgb": color_data.get("rebrickable_color_rgb"),
                 "height_plates": height_plates,
                 "orientation": 0,
                 "source_rgb": {
@@ -1519,7 +1520,18 @@ def create_stud_preview_base64(geometry, cell_size=14):
         py = y * cell_size
 
         color_hex = placement.get("rebrickable_color_rgb")
-        color_rgb = hex_to_rgb(color_hex)
+
+        if color_hex:
+            color_rgb = hex_to_rgb(color_hex)
+        else:
+            # Fallback to the original image pixel color.
+            # This prevents the preview from becoming grey when Rebrickable RGB is missing.
+            source_rgb = placement.get("source_rgb", {})
+            color_rgb = (
+                int(source_rgb.get("r", 160)),
+                int(source_rgb.get("g", 165)),
+                int(source_rgb.get("b", 169))
+            )
 
         height_plates = int(placement.get("height_plates", 1))
 
