@@ -1277,7 +1277,7 @@ def generate_generic_plan_from_analysis(analysis, data):
 # Image-to-placement geometry helpers
 # ---------------------------------------------------------------------
 
-LEGO_RGB_PALETTE = {
+ARCHITECTURE_LEGO_RGB_PALETTE = {
     # Core neutrals
     "black": (5, 19, 29),
     "white": (255, 255, 255),
@@ -1323,6 +1323,65 @@ LEGO_RGB_PALETTE = {
     "pink": (255, 167, 176)
 }
 
+
+PET_LEGO_RGB_PALETTE = {
+    # Pet-safe palette: no blue colors, so gray/white fur and shadows do not become blue.
+    "black": (5, 19, 29),
+    "white": (255, 255, 255),
+
+    # Neutral fur / background / shadow colors
+    "very_light_gray": (229, 228, 222),
+    "light_gray": (155, 161, 157),
+    "light_bluish_gray": (160, 165, 169),
+    "medium_gray": (128, 128, 128),
+    "dark_gray": (109, 110, 108),
+    "dark_bluish_gray": (99, 95, 98),
+
+    # Cream / tan fur colors
+    "light_tan": (238, 229, 195),
+    "tan": (215, 197, 153),
+    "dark_tan": (149, 138, 115),
+
+    # Brown fur / stripe colors
+    "dark_brown": (53, 33, 0),
+    "brown": (96, 57, 19),
+    "reddish_brown": (88, 42, 18),
+
+    # Eye / small natural detail colors
+    "dark_green": (24, 70, 50),
+    "green": (40, 127, 70),
+    "lime": (187, 233, 11),
+
+    # Warm small detail colors
+    "dark_red": (123, 46, 47),
+    "red": (196, 40, 28),
+    "orange": (218, 133, 64),
+    "yellow": (245, 205, 47),
+    "pink": (255, 167, 176)
+}
+
+
+def get_palette_for_analysis(analysis):
+    """
+    Uses different color palettes by subject type.
+    This prevents pet images from picking sky-blue colors while still allowing
+    architecture/castle images to use stone, sand, and sky colors.
+    """
+    category = str(analysis.get("category", "")).lower()
+    model_type = str(analysis.get("recommended_model_type", "")).lower()
+    strategy = str(analysis.get("build_strategy", "")).lower()
+
+    if (
+        category == "pet_animal"
+        or "pet" in category
+        or "animal" in category
+        or "pet" in strategy
+        or "portrait" in model_type
+    ):
+        return PET_LEGO_RGB_PALETTE
+
+    return ARCHITECTURE_LEGO_RGB_PALETTE
+
 def rgb_tuple_to_hex(rgb):
     if not rgb:
         return None
@@ -1367,13 +1426,13 @@ def resize_image_keep_aspect(image, width, height):
     return canvas
 
 
-def closest_lego_color_name(rgb):
+def closest_lego_color_name(rgb, palette):
     r, g, b = rgb
 
     best_name = "light_bluish_gray"
     best_distance = None
 
-    for color_name, color_rgb in LEGO_RGB_PALETTE.items():
+    for color_name, color_rgb in palette.items():
         cr, cg, cb = color_rgb
 
         distance = (
@@ -1420,13 +1479,13 @@ def height_plates_from_rgb(rgb, edge_value=0):
     return max(1, min(6, height))
 
 
-def resolve_geometry_color(color_name):
+def resolve_geometry_color(color_name, palette):
     """
     Uses Rebrickable color data when available.
     If a custom preview color is not found in Rebrickable, it falls back to
-    the local LEGO_RGB_PALETTE RGB so the preview does not turn gray.
+    the selected local palette RGB so the preview does not turn gray.
     """
-    palette_rgb_hex = rgb_tuple_to_hex(LEGO_RGB_PALETTE.get(color_name))
+    palette_rgb_hex = rgb_tuple_to_hex(palette.get(color_name))
 
     try:
         color_data = resolve_rebrickable_color(color_name)
@@ -1448,7 +1507,7 @@ def resolve_geometry_color(color_name):
         }
 
 
-def generate_image_geometry(image_url, width=48, height=48, part_name="Plate 1x1"):
+def generate_image_geometry(image_url, analysis, width=48, height=48, part_name="Plate 1x1"):
     """
     Converts the original uploaded image into real grid placement geometry.
     Each placement has x, y, z, color, part number, and relief height.
@@ -1459,6 +1518,8 @@ def generate_image_geometry(image_url, width=48, height=48, part_name="Plate 1x1
 
     image = download_image_from_url(image_url)
     image = resize_image_keep_aspect(image, width, height)
+
+    palette = get_palette_for_analysis(analysis)
 
     edge_image = image.convert("L").filter(ImageFilter.FIND_EDGES)
 
@@ -1472,10 +1533,10 @@ def generate_image_geometry(image_url, width=48, height=48, part_name="Plate 1x1
             rgb = image.getpixel((x, y))
             edge_value = edge_image.getpixel((x, y))
 
-            color_name = closest_lego_color_name(rgb)
+            color_name = closest_lego_color_name(rgb, palette)
 
             if color_name not in color_cache:
-                color_cache[color_name] = resolve_geometry_color(color_name)
+                color_cache[color_name] = resolve_geometry_color(color_name, palette)
 
             color_data = color_cache[color_name]
             height_plates = height_plates_from_rgb(rgb, edge_value=edge_value)
@@ -1724,6 +1785,7 @@ async def generate_lego_model(data: dict):
 
             image_geometry = generate_image_geometry(
                 original_image_url,
+                analysis,
                 width=geometry_width,
                 height=geometry_height,
                 part_name="Plate 1x1"
