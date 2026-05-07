@@ -1,50 +1,12 @@
 from fastapi import FastAPI
 import os
+import re
 import requests
+from functools import lru_cache
 
 app = FastAPI()
 
 REBRICKABLE_BASE_URL = "https://rebrickable.com/api/v3"
-
-
-# Starter candidate library.
-# These are common LEGO/Rebrickable/BrickLink-compatible part numbers.
-# Rebrickable will validate whether they exist and whether the color exists for the part.
-PARTS = {
-    "Plate 1x1": "3024",
-    "Plate 1x2": "3023",
-    "Plate 2x2": "3022",
-    "Tile 1x1": "3070b",
-    "Tile 1x2": "3069b",
-    "Tile 2x2": "3068b",
-    "Brick 1x1": "3005",
-    "Brick 1x2": "3004",
-    "Brick 1x4": "3010",
-    "Brick Round 2x2": "3941",
-    "Arch 1x4": "3659"
-}
-
-
-# Rebrickable color IDs.
-# Many of these also match common BrickLink color IDs for basic colors,
-# but treat Rebrickable as the validation source.
-COLORS = {
-    "white": 1,
-    "tan": 2,
-    "red": 4,
-    "green": 6,
-    "blue": 7,
-    "black": 0,
-    "dark_green": 80,
-    "dark_bluish_gray": 72,
-    "light_bluish_gray": 71,
-    "reddish_brown": 70,
-    "dark_tan": 19,
-    "yellow": 14,
-    "orange": 25,
-    "brown": 8,
-    "light_gray": 9
-}
 
 
 @app.get("/")
@@ -53,7 +15,9 @@ def root():
         "status": "running",
         "mode": "analysis_only",
         "catalog_source": "rebrickable",
-        "rebrickable_api_configured": rebrickable_is_configured()
+        "rebrickable_api_configured": rebrickable_is_configured(),
+        "bricklink_api_used": False,
+        "note": "Parts and colors are resolved through Rebrickable API, not hardcoded IDs."
     }
 
 
@@ -111,9 +75,190 @@ def test_rebrickable():
         }
 
 
+def normalize_text(value):
+    value = str(value or "").lower().strip()
+    value = value.replace("-", " ")
+    value = value.replace("_", " ")
+    value = re.sub(r"[^a-z0-9 ]+", "", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def normalize_color_alias(color):
+    color = normalize_text(color)
+
+    aliases = {
+        "light brown": "tan",
+        "beige": "tan",
+        "cream": "tan",
+        "dark brown": "reddish brown",
+        "reddish brown": "reddish brown",
+        "grey": "light bluish gray",
+        "gray": "light bluish gray",
+        "light grey": "light bluish gray",
+        "light gray": "light bluish gray",
+        "light bluish grey": "light bluish gray",
+        "dark grey": "dark bluish gray",
+        "dark gray": "dark bluish gray",
+        "dark bluish grey": "dark bluish gray",
+        "pale pink": "red",
+        "pink": "red",
+        "light green": "green",
+        "hazel": "green"
+    }
+
+    return aliases.get(color, color)
+
+
+@lru_cache(maxsize=1)
+def get_rebrickable_colors_cache():
+    """
+    Loads all Rebrickable colors once and keeps them in memory.
+    This avoids hardcoding color IDs.
+    """
+    colors = []
+    page = 1
+
+    while True:
+        data = rebrickable_get(
+            "/lego/colors/",
+            params={
+                "page": page,
+                "page_size": 1000
+            }
+        )
+
+        colors.extend(data.get("results", []))
+
+        if not data.get("next"):
+            break
+
+        page += 1
+
+    by_normalized_name = {}
+
+    for color in colors:
+        color_id = color.get("id")
+        name = color.get("name")
+
+        if color_id is None or not name:
+            continue
+
+        by_normalized_name[normalize_text(name)] = {
+            "id": color_id,
+            "name": name,
+            "rgb": color.get("rgb"),
+            "is_trans": color.get("is_trans")
+        }
+
+    return {
+        "colors": colors,
+        "by_normalized_name": by_normalized_name
+    }
+
+
+def resolve_rebrickable_color(color_name):
+    """
+    Converts a simple planner color name like 'tan' or 'light_bluish_gray'
+    into an actual Rebrickable color object from the API.
+    """
+    normalized = normalize_color_alias(color_name)
+    color_map = get_rebrickable_colors_cache()["by_normalized_name"]
+
+    if normalized in color_map:
+        return color_map[normalized]
+
+    # Safe fallback: Light Bluish Gray if available.
+    fallback = color_map.get("light bluish gray")
+
+    if fallback:
+        return fallback
+
+    # Final fallback if color catalog is somehow missing expected color.
+    return {
+        "id": None,
+        "name": color_name,
+        "rgb": None,
+        "is_trans": False
+    }
+
+
+@lru_cache(maxsize=512)
+def search_rebrickable_part(search_term):
+    """
+    Finds a part number from Rebrickable by search term.
+    This avoids hardcoding part IDs like 3023, 3024, etc.
+    """
+    data = rebrickable_get(
+        "/lego/parts/",
+        params={
+            "search": search_term,
+            "page_size": 10
+        }
+    )
+
+    results = data.get("results", [])
+
+    if not results:
+        return None
+
+    normalized_search = normalize_text(search_term)
+
+    # Prefer exact-ish name match.
+    for item in results:
+        item_name = normalize_text(item.get("name", ""))
+
+        if normalized_search in item_name or item_name in normalized_search:
+            return {
+                "part_num": item.get("part_num"),
+                "official_part_name": item.get("name"),
+                "part_img_url": item.get("part_img_url")
+            }
+
+    # Otherwise use first result.
+    first = results[0]
+
+    return {
+        "part_num": first.get("part_num"),
+        "official_part_name": first.get("name"),
+        "part_img_url": first.get("part_img_url")
+    }
+
+
+def resolve_part(part_name):
+    """
+    Converts internal planner labels into Rebrickable search terms.
+    These are not hardcoded IDs. They are search labels used to ask Rebrickable.
+    """
+    search_terms = {
+        "Plate 1x1": "Plate 1 x 1",
+        "Plate 1x2": "Plate 1 x 2",
+        "Plate 2x2": "Plate 2 x 2",
+        "Tile 1x1": "Tile 1 x 1 with Groove",
+        "Tile 1x2": "Tile 1 x 2 with Groove",
+        "Tile 2x2": "Tile 2 x 2 with Groove",
+        "Brick 1x1": "Brick 1 x 1",
+        "Brick 1x2": "Brick 1 x 2",
+        "Brick 1x4": "Brick 1 x 4",
+        "Brick Round 2x2": "Brick Round 2 x 2",
+        "Arch 1x4": "Arch 1 x 4"
+    }
+
+    search_term = search_terms.get(part_name, part_name)
+
+    try:
+        return search_rebrickable_part(search_term)
+    except Exception as e:
+        return {
+            "part_num": None,
+            "official_part_name": None,
+            "part_img_url": None,
+            "error": str(e)
+        }
+
+
 def get_tier_multiplier(analysis):
     tier = str(analysis.get("recommended_pricing_tier", "")).lower()
-    model_type = str(analysis.get("recommended_model_type", "")).lower()
 
     if tier == "premium":
         return 3
@@ -125,24 +270,47 @@ def get_tier_multiplier(analysis):
 
 
 def add_part_line(parts, part_name, color, qty):
-    part_num = PARTS.get(part_name)
-    color_id = COLORS.get(color, 71)
+    color_data = resolve_rebrickable_color(color)
+    part_data = resolve_part(part_name)
+
+    part_num = None
+    official_part_name = None
+    part_img_url = None
+    resolve_error = None
+
+    if part_data:
+        part_num = part_data.get("part_num")
+        official_part_name = part_data.get("official_part_name")
+        part_img_url = part_data.get("part_img_url")
+        resolve_error = part_data.get("error")
+
+    notes = []
+
+    if resolve_error:
+        notes.append(f"Part search failed: {resolve_error}")
+
+    if not part_num:
+        notes.append(f"Could not resolve part from Rebrickable search for planner part: {part_name}")
+
+    if color_data.get("id") is None:
+        notes.append(f"Could not resolve color from Rebrickable colors API for planner color: {color}")
 
     parts.append({
         "part_name": part_name,
         "part_num": part_num,
-        "bricklink_id": part_num,
         "color": color,
-        "rebrickable_color_id": color_id,
-        "bricklink_color_id": color_id,
+        "rebrickable_color_id": color_data.get("id"),
+        "rebrickable_color_name": color_data.get("name"),
+        "rebrickable_color_rgb": color_data.get("rgb"),
         "quantity": int(qty),
         "validation": {
             "checked": False,
             "part_exists": None,
             "color_exists_for_part": None,
-            "official_part_name": None,
-            "notes": []
-        }
+            "official_part_name": official_part_name,
+            "notes": notes
+        },
+        "part_img_url": part_img_url
     })
 
 
@@ -150,24 +318,53 @@ def build_parts_summary(parts):
     summary = {}
 
     for p in parts:
-        key = f"{p['part_name']} - {p['color']}"
+        color_name = p.get("rebrickable_color_name") or p.get("color")
+        key = f"{p['part_name']} - {color_name}"
         summary[key] = summary.get(key, 0) + int(p["quantity"])
 
     return summary
 
 
-def create_bricklink_xml(parts):
+def create_rebrickable_parts_export(parts):
+    """
+    Simple export that is based on Rebrickable part_num + Rebrickable color_id.
+    This is safer than pretending we are producing BrickLink-validated XML.
+    """
+    rows = []
+
+    for p in parts:
+        if not p.get("part_num") or p.get("rebrickable_color_id") is None:
+            continue
+
+        rows.append({
+            "part_num": p["part_num"],
+            "color_id": p["rebrickable_color_id"],
+            "color_name": p.get("rebrickable_color_name"),
+            "quantity": p["quantity"]
+        })
+
+    return rows
+
+
+def create_basic_xml_export(parts):
+    """
+    Generic XML export using Rebrickable-resolved part numbers and color IDs.
+    This is not labeled as BrickLink XML because BrickLink color IDs may differ.
+    """
     xml = "<INVENTORY>\n"
 
     for p in parts:
-        if not p.get("bricklink_id"):
+        part_num = p.get("part_num")
+        color_id = p.get("rebrickable_color_id")
+
+        if not part_num or color_id is None:
             continue
 
         xml += "  <ITEM>\n"
-        xml += "    <ITEMTYPE>P</ITEMTYPE>\n"
-        xml += f"    <ITEMID>{p['bricklink_id']}</ITEMID>\n"
-        xml += f"    <COLOR>{p['bricklink_color_id']}</COLOR>\n"
-        xml += f"    <MINQTY>{p['quantity']}</MINQTY>\n"
+        xml += f"    <PARTNUM>{part_num}</PARTNUM>\n"
+        xml += f"    <COLORID>{color_id}</COLORID>\n"
+        xml += f"    <COLORNAME>{p.get('rebrickable_color_name')}</COLORNAME>\n"
+        xml += f"    <QTY>{p['quantity']}</QTY>\n"
         xml += "  </ITEM>\n"
 
     xml += "</INVENTORY>"
@@ -189,7 +386,7 @@ def validate_parts_with_rebrickable(parts):
             p["validation"]["checked"] = True
             p["validation"]["part_exists"] = False
             p["validation"]["color_exists_for_part"] = False
-            p["validation"]["notes"].append("Missing part number.")
+            p["validation"]["notes"].append("Missing Rebrickable part number.")
             continue
 
         try:
@@ -199,11 +396,19 @@ def validate_parts_with_rebrickable(parts):
             p["validation"]["part_exists"] = True
             p["validation"]["official_part_name"] = part_data.get("name")
 
+            if part_data.get("part_img_url") and not p.get("part_img_url"):
+                p["part_img_url"] = part_data.get("part_img_url")
+
         except Exception as e:
             p["validation"]["checked"] = True
             p["validation"]["part_exists"] = False
             p["validation"]["color_exists_for_part"] = False
             p["validation"]["notes"].append(f"Part lookup failed: {str(e)}")
+            continue
+
+        if color_id is None:
+            p["validation"]["color_exists_for_part"] = False
+            p["validation"]["notes"].append("Missing Rebrickable color ID.")
             continue
 
         try:
@@ -229,16 +434,19 @@ def validate_parts_with_rebrickable(parts):
 
 def make_response(message, analysis, build_modules, parts, data):
     validate = bool(data.get("validate_with_rebrickable", True))
+    include_export = bool(data.get("include_wanted_list_xml", True))
 
     if validate:
         parts = validate_parts_with_rebrickable(parts)
 
-    return {
+    response = {
         "message": message,
         "generation_mode": "analysis_only",
         "catalog_source": "rebrickable",
         "rebrickable_api_configured": rebrickable_is_configured(),
         "rebrickable_validation_enabled": validate,
+        "bricklink_api_used": False,
+        "bricklink_xml_export_available": False,
         "subject": analysis.get("subject"),
         "category": analysis.get("category"),
         "scene_type": analysis.get("scene_type"),
@@ -252,9 +460,14 @@ def make_response(message, analysis, build_modules, parts, data):
         "parts": parts,
         "parts_summary": build_parts_summary(parts),
         "estimated_total_parts": sum(p["quantity"] for p in parts),
-        "bricklink_wanted_list_xml": create_bricklink_xml(parts),
+        "rebrickable_parts_export": create_rebrickable_parts_export(parts),
         "source_analysis": analysis
     }
+
+    if include_export:
+        response["basic_parts_xml_export"] = create_basic_xml_export(parts)
+
+    return response
 
 
 def generate_architecture_plan_from_analysis(analysis, data):
@@ -313,9 +526,16 @@ def generate_mosaic_plan_from_analysis(analysis, data):
     add_part_line(parts, "Tile 2x2", "tan", 80 * m)
     add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m)
     add_part_line(parts, "Tile 1x1", "black", 35 * m)
+
+    # Eye color for pets/portraits.
     add_part_line(parts, "Tile 1x1", "green", 20 * m)
+
     add_part_line(parts, "Tile 1x1", "white", 60 * m)
+
+    # Nose / small warm detail.
     add_part_line(parts, "Plate 1x1", "red", 6 * m)
+
+    # Neutral background/base grid.
     add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m)
 
     build_modules = [
@@ -448,7 +668,7 @@ async def generate_lego_model(data: dict):
             "error": "Missing analysis JSON",
             "expected_body": {
                 "analysis": {},
-                "include_bricklink_parts": True,
+                "include_bricklink_parts": False,
                 "include_wanted_list_xml": True,
                 "include_build_modules": True,
                 "detail_level": 2,
