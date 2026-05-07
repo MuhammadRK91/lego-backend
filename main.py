@@ -9,6 +9,82 @@ app = FastAPI()
 REBRICKABLE_BASE_URL = "https://rebrickable.com/api/v3"
 
 
+# Strategy-specific allowed parts.
+# These are controlled part libraries, not blind Rebrickable searches.
+# Rebrickable is used to validate these exact part numbers and colors.
+ALLOWED_PARTS_BY_STRATEGY = {
+    "mosaic_or_relief_conversion": {
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 2x2": "3068b",
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 2x2": "3022"
+    },
+    "pet_template_customization": {
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 2x2": "3068b",
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 2x2": "3022",
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004"
+    },
+    "architecture_studio_rebuild": {
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 2x2": "3022",
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 2x2": "3068b",
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004",
+        "Brick 1x4": "3010",
+        "Brick Round 2x2": "3941",
+        "Arch 1x4": "3659"
+    },
+    "vehicle_template_customization": {
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 2x2": "3022",
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004",
+        "Brick 1x4": "3010",
+        "Slope 1x2": "3040"
+    },
+    "object_depth_to_voxel": {
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 2x2": "3022",
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004",
+        "Brick 1x4": "3010"
+    },
+    "landscape_diorama_rebuild": {
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 2x2": "3022",
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 2x2": "3068b",
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004"
+    },
+    "manual_review_required": {
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 2x2": "3022",
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b"
+    }
+}
+
+
 @app.get("/")
 def root():
     return {
@@ -17,7 +93,7 @@ def root():
         "catalog_source": "rebrickable",
         "rebrickable_api_configured": rebrickable_is_configured(),
         "bricklink_api_used": False,
-        "note": "Parts and colors are resolved through Rebrickable API, not hardcoded IDs."
+        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable."
     }
 
 
@@ -91,6 +167,7 @@ def normalize_color_alias(color):
         "light brown": "tan",
         "beige": "tan",
         "cream": "tan",
+        "sand": "tan",
         "dark brown": "reddish brown",
         "reddish brown": "reddish brown",
         "grey": "light bluish gray",
@@ -104,7 +181,8 @@ def normalize_color_alias(color):
         "pale pink": "red",
         "pink": "red",
         "light green": "green",
-        "hazel": "green"
+        "hazel": "green",
+        "dark green": "dark green"
     }
 
     return aliases.get(color, color)
@@ -159,8 +237,8 @@ def get_rebrickable_colors_cache():
 
 def resolve_rebrickable_color(color_name):
     """
-    Converts a simple planner color name like 'tan' or 'light_bluish_gray'
-    into an actual Rebrickable color object from the API.
+    Converts planner color names like 'tan' or 'light_bluish_gray'
+    into actual Rebrickable color records from the API.
     """
     normalized = normalize_color_alias(color_name)
     color_map = get_rebrickable_colors_cache()["by_normalized_name"]
@@ -168,13 +246,11 @@ def resolve_rebrickable_color(color_name):
     if normalized in color_map:
         return color_map[normalized]
 
-    # Safe fallback: Light Bluish Gray if available.
     fallback = color_map.get("light bluish gray")
 
     if fallback:
         return fallback
 
-    # Final fallback if color catalog is somehow missing expected color.
     return {
         "id": None,
         "name": color_name,
@@ -183,78 +259,57 @@ def resolve_rebrickable_color(color_name):
     }
 
 
-@lru_cache(maxsize=512)
-def search_rebrickable_part(search_term):
-    """
-    Finds a part number from Rebrickable by search term.
-    This avoids hardcoding part IDs like 3023, 3024, etc.
-    """
-    data = rebrickable_get(
-        "/lego/parts/",
-        params={
-            "search": search_term,
-            "page_size": 10
-        }
+def get_build_strategy(analysis):
+    strategy = str(analysis.get("build_strategy", "")).strip()
+
+    if strategy:
+        return strategy
+
+    model_type = str(analysis.get("recommended_model_type", "")).strip()
+    category = str(analysis.get("category", "")).strip()
+
+    if model_type == "mosaic_relief":
+        return "mosaic_or_relief_conversion"
+
+    if model_type in ["architecture_full_model", "architecture_facade"]:
+        return "architecture_studio_rebuild"
+
+    if model_type == "vehicle_model":
+        return "vehicle_template_customization"
+
+    if category in ["pet_animal", "person_portrait"]:
+        return "mosaic_or_relief_conversion"
+
+    return "object_depth_to_voxel"
+
+
+def get_allowed_parts_for_analysis(analysis):
+    strategy = get_build_strategy(analysis)
+
+    return ALLOWED_PARTS_BY_STRATEGY.get(
+        strategy,
+        ALLOWED_PARTS_BY_STRATEGY["object_depth_to_voxel"]
     )
 
-    results = data.get("results", [])
 
-    if not results:
-        return None
+def resolve_part(part_name, analysis):
+    allowed_parts = get_allowed_parts_for_analysis(analysis)
+    part_num = allowed_parts.get(part_name)
 
-    normalized_search = normalize_text(search_term)
-
-    # Prefer exact-ish name match.
-    for item in results:
-        item_name = normalize_text(item.get("name", ""))
-
-        if normalized_search in item_name or item_name in normalized_search:
-            return {
-                "part_num": item.get("part_num"),
-                "official_part_name": item.get("name"),
-                "part_img_url": item.get("part_img_url")
-            }
-
-    # Otherwise use first result.
-    first = results[0]
-
-    return {
-        "part_num": first.get("part_num"),
-        "official_part_name": first.get("name"),
-        "part_img_url": first.get("part_img_url")
-    }
-
-
-def resolve_part(part_name):
-    """
-    Converts internal planner labels into Rebrickable search terms.
-    These are not hardcoded IDs. They are search labels used to ask Rebrickable.
-    """
-    search_terms = {
-        "Plate 1x1": "Plate 1 x 1",
-        "Plate 1x2": "Plate 1 x 2",
-        "Plate 2x2": "Plate 2 x 2",
-        "Tile 1x1": "Tile 1 x 1 with Groove",
-        "Tile 1x2": "Tile 1 x 2 with Groove",
-        "Tile 2x2": "Tile 2 x 2 with Groove",
-        "Brick 1x1": "Brick 1 x 1",
-        "Brick 1x2": "Brick 1 x 2",
-        "Brick 1x4": "Brick 1 x 4",
-        "Brick Round 2x2": "Brick Round 2 x 2",
-        "Arch 1x4": "Arch 1 x 4"
-    }
-
-    search_term = search_terms.get(part_name, part_name)
-
-    try:
-        return search_rebrickable_part(search_term)
-    except Exception as e:
+    if not part_num:
         return {
             "part_num": None,
             "official_part_name": None,
             "part_img_url": None,
-            "error": str(e)
+            "error": f"Part '{part_name}' is not allowed for strategy '{get_build_strategy(analysis)}'."
         }
+
+    return {
+        "part_num": part_num,
+        "official_part_name": None,
+        "part_img_url": None,
+        "error": None
+    }
 
 
 def get_tier_multiplier(analysis):
@@ -269,28 +324,20 @@ def get_tier_multiplier(analysis):
     return 1
 
 
-def add_part_line(parts, part_name, color, qty):
+def add_part_line(parts, part_name, color, qty, analysis):
     color_data = resolve_rebrickable_color(color)
-    part_data = resolve_part(part_name)
+    part_data = resolve_part(part_name, analysis)
 
-    part_num = None
-    official_part_name = None
-    part_img_url = None
-    resolve_error = None
-
-    if part_data:
-        part_num = part_data.get("part_num")
-        official_part_name = part_data.get("official_part_name")
-        part_img_url = part_data.get("part_img_url")
-        resolve_error = part_data.get("error")
+    part_num = part_data.get("part_num")
+    resolve_error = part_data.get("error")
 
     notes = []
 
     if resolve_error:
-        notes.append(f"Part search failed: {resolve_error}")
+        notes.append(resolve_error)
 
     if not part_num:
-        notes.append(f"Could not resolve part from Rebrickable search for planner part: {part_name}")
+        notes.append(f"Could not resolve allowed part for planner part: {part_name}")
 
     if color_data.get("id") is None:
         notes.append(f"Could not resolve color from Rebrickable colors API for planner color: {color}")
@@ -303,14 +350,14 @@ def add_part_line(parts, part_name, color, qty):
         "rebrickable_color_name": color_data.get("name"),
         "rebrickable_color_rgb": color_data.get("rgb"),
         "quantity": int(qty),
+        "strategy": get_build_strategy(analysis),
         "validation": {
             "checked": False,
             "part_exists": None,
             "color_exists_for_part": None,
-            "official_part_name": official_part_name,
+            "official_part_name": None,
             "notes": notes
-        },
-        "part_img_url": part_img_url
+        }
     })
 
 
@@ -326,10 +373,6 @@ def build_parts_summary(parts):
 
 
 def create_rebrickable_parts_export(parts):
-    """
-    Simple export that is based on Rebrickable part_num + Rebrickable color_id.
-    This is safer than pretending we are producing BrickLink-validated XML.
-    """
     rows = []
 
     for p in parts:
@@ -348,8 +391,8 @@ def create_rebrickable_parts_export(parts):
 
 def create_basic_xml_export(parts):
     """
-    Generic XML export using Rebrickable-resolved part numbers and color IDs.
-    This is not labeled as BrickLink XML because BrickLink color IDs may differ.
+    Generic XML export using Rebrickable-resolved part numbers and Rebrickable color IDs.
+    This is not BrickLink XML.
     """
     xml = "<INVENTORY>\n"
 
@@ -396,7 +439,7 @@ def validate_parts_with_rebrickable(parts):
             p["validation"]["part_exists"] = True
             p["validation"]["official_part_name"] = part_data.get("name")
 
-            if part_data.get("part_img_url") and not p.get("part_img_url"):
+            if part_data.get("part_img_url"):
                 p["part_img_url"] = part_data.get("part_img_url")
 
         except Exception as e:
@@ -447,6 +490,8 @@ def make_response(message, analysis, build_modules, parts, data):
         "rebrickable_validation_enabled": validate,
         "bricklink_api_used": False,
         "bricklink_xml_export_available": False,
+        "selected_build_strategy": get_build_strategy(analysis),
+        "allowed_parts_used": get_allowed_parts_for_analysis(analysis),
         "subject": analysis.get("subject"),
         "category": analysis.get("category"),
         "scene_type": analysis.get("scene_type"),
@@ -474,18 +519,18 @@ def generate_architecture_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "green", 40 * m)
-    add_part_line(parts, "Plate 1x2", "dark_green", 30 * m)
-    add_part_line(parts, "Plate 1x1", "red", 16 * m)
+    add_part_line(parts, "Plate 2x2", "green", 40 * m, analysis)
+    add_part_line(parts, "Plate 1x2", "dark_green", 30 * m, analysis)
+    add_part_line(parts, "Plate 1x1", "red", 16 * m, analysis)
 
-    add_part_line(parts, "Brick Round 2x2", "dark_bluish_gray", 90 * m)
-    add_part_line(parts, "Brick 1x2", "dark_bluish_gray", 180 * m)
-    add_part_line(parts, "Brick 1x4", "dark_bluish_gray", 80 * m)
-    add_part_line(parts, "Plate 1x1", "black", 28 * m)
+    add_part_line(parts, "Brick Round 2x2", "dark_bluish_gray", 90 * m, analysis)
+    add_part_line(parts, "Brick 1x2", "dark_bluish_gray", 180 * m, analysis)
+    add_part_line(parts, "Brick 1x4", "dark_bluish_gray", 80 * m, analysis)
+    add_part_line(parts, "Plate 1x1", "black", 28 * m, analysis)
 
-    add_part_line(parts, "Arch 1x4", "tan", 8 * m)
-    add_part_line(parts, "Plate 1x2", "tan", 60 * m)
-    add_part_line(parts, "Tile 1x2", "white", 30 * m)
+    add_part_line(parts, "Arch 1x4", "tan", 8 * m, analysis)
+    add_part_line(parts, "Plate 1x2", "tan", 60 * m, analysis)
+    add_part_line(parts, "Tile 1x2", "white", 30 * m, analysis)
 
     build_modules = [
         {
@@ -523,20 +568,20 @@ def generate_mosaic_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Tile 2x2", "tan", 80 * m)
-    add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m)
-    add_part_line(parts, "Tile 1x1", "black", 35 * m)
+    add_part_line(parts, "Tile 2x2", "tan", 80 * m, analysis)
+    add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m, analysis)
+    add_part_line(parts, "Tile 1x1", "black", 35 * m, analysis)
 
     # Eye color for pets/portraits.
-    add_part_line(parts, "Tile 1x1", "green", 20 * m)
+    add_part_line(parts, "Tile 1x1", "green", 20 * m, analysis)
 
-    add_part_line(parts, "Tile 1x1", "white", 60 * m)
+    add_part_line(parts, "Tile 1x1", "white", 60 * m, analysis)
 
     # Nose / small warm detail.
-    add_part_line(parts, "Plate 1x1", "red", 6 * m)
+    add_part_line(parts, "Plate 1x1", "red", 6 * m, analysis)
 
     # Neutral background/base grid.
-    add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m)
+    add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m, analysis)
 
     build_modules = [
         {
@@ -574,11 +619,11 @@ def generate_vehicle_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "black", 20 * m)
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m)
-    add_part_line(parts, "Brick 1x4", "light_bluish_gray", 40 * m)
-    add_part_line(parts, "Tile 1x2", "black", 30 * m)
-    add_part_line(parts, "Plate 1x1", "red", 8 * m)
+    add_part_line(parts, "Plate 2x2", "black", 20 * m, analysis)
+    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis)
+    add_part_line(parts, "Brick 1x4", "light_bluish_gray", 40 * m, analysis)
+    add_part_line(parts, "Tile 1x2", "black", 30 * m, analysis)
+    add_part_line(parts, "Plate 1x1", "red", 8 * m, analysis)
 
     build_modules = [
         {
@@ -611,10 +656,10 @@ def generate_generic_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "light_bluish_gray", 40 * m)
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m)
-    add_part_line(parts, "Plate 1x2", "dark_bluish_gray", 40 * m)
-    add_part_line(parts, "Tile 1x2", "tan", 30 * m)
+    add_part_line(parts, "Plate 2x2", "light_bluish_gray", 40 * m, analysis)
+    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis)
+    add_part_line(parts, "Plate 1x2", "dark_bluish_gray", 40 * m, analysis)
+    add_part_line(parts, "Tile 1x2", "tan", 30 * m, analysis)
 
     build_modules = [
         {
