@@ -10,11 +10,14 @@ from PIL import Image, ImageFilter, ImageDraw
 
 app = FastAPI()
 
-# Allow frontend apps like Bolt, Vite, or your future website to call this API.
-# For production, replace ["*"] with your real frontend domain.
+# Allow your published Bolt app and local dev apps to call this API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://interactive-lego-3d-dfsf.bolt.host",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
