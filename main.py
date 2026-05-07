@@ -1387,8 +1387,8 @@ def generate_image_geometry(image_url, width=48, height=48, part_name="Plate 1x1
     Each placement has x, y, z, color, part number, and relief height.
     This is a practical first geometry layer for mosaic/shallow relief output.
     """
-    width = clamp_int(width, 8, 128, 48)
-    height = clamp_int(height, 8, 128, 48)
+    width = clamp_int(width, 8, 256, 48)
+    height = clamp_int(height, 8, 256, 48)
 
     image = download_image_from_url(image_url)
     image = resize_image_keep_aspect(image, width, height)
@@ -1502,7 +1502,7 @@ def create_stud_preview_base64(geometry, cell_size=14):
     width = int(geometry.get("width", 48))
     height = int(geometry.get("height", 48))
 
-    cell_size = clamp_int(cell_size, 6, 30, 14)
+    cell_size = clamp_int(cell_size, 3, 30, 6)
 
     canvas_width = width * cell_size
     canvas_height = height * cell_size
