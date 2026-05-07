@@ -12,75 +12,300 @@ REBRICKABLE_BASE_URL = "https://rebrickable.com/api/v3"
 # Strategy-specific allowed parts.
 # These are controlled part libraries, not blind Rebrickable searches.
 # Rebrickable is used to validate these exact part numbers and colors.
+#
+# Part IDs are taken from your RebrickNet extraction and common Rebrickable part IDs.
+# Do not add every scraped part to every strategy. Keep parts grouped by build use.
 ALLOWED_PARTS_BY_STRATEGY = {
     "mosaic_or_relief_conversion": {
+        # Core mosaic tiles
         "Tile 1x1": "3070b",
         "Tile 1x2": "3069b",
+        "Tile 1x3": "63864",
+        "Tile 1x4": "2431",
+        "Tile 1x6": "6636",
+        "Tile 1x8": "4162",
         "Tile 2x2": "3068b",
+        "Tile 2x3": "26603",
+        "Tile 2x4": "87079",
+
+        # Round detail tiles
+        "Tile Round 1x1": "98138",
+        "Tile Round 1x1 Half Circle": "24246",
+        "Tile Round 1x1 Quarter": "25269",
+        "Tile Round 2x2": "14769",
+
+        # Plates for relief/depth
         "Plate 1x1": "3024",
         "Plate 1x2": "3023",
-        "Plate 2x2": "3022"
+        "Plate 1x3": "3623",
+        "Plate 1x4": "3710",
+        "Plate 2x2": "3022",
+        "Plate 2x3": "3021",
+        "Plate 2x4": "3020",
+
+        # Small round highlights
+        "Plate Round 1x1 Open Stud": "85861",
+        "Plate Round 1x1 Solid Stud": "6141"
     },
+
     "pet_template_customization": {
+        # Mosaic/relief surface
         "Tile 1x1": "3070b",
         "Tile 1x2": "3069b",
+        "Tile 1x3": "63864",
+        "Tile 1x4": "2431",
         "Tile 2x2": "3068b",
+        "Tile Round 1x1": "98138",
+        "Tile Round 1x1 Half Circle": "24246",
+        "Tile Round 1x1 Quarter": "25269",
+
+        # Plates
         "Plate 1x1": "3024",
         "Plate 1x2": "3023",
+        "Plate 1x3": "3623",
+        "Plate 1x4": "3710",
         "Plate 2x2": "3022",
+        "Plate 2x3": "3021",
+        "Plate 2x4": "3020",
+        "Plate Round 1x1 Open Stud": "85861",
+        "Plate Round 1x1 Solid Stud": "6141",
+
+        # Small 3D shaping
         "Brick 1x1": "3005",
-        "Brick 1x2": "3004"
+        "Brick 1x2": "3004",
+        "Brick Round 1x1": "3062b",
+        "Slope Cheese 1x1": "54200",
+        "Slope Curved 2x1": "11477"
     },
+
+    "portrait_bust_template": {
+        # Face/skin/facial detail surface
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 1x3": "63864",
+        "Tile 1x4": "2431",
+        "Tile 2x2": "3068b",
+        "Tile Round 1x1": "98138",
+        "Tile Round 1x1 Half Circle": "24246",
+        "Tile Round 1x1 Quarter": "25269",
+
+        # Relief plates
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 1x3": "3623",
+        "Plate 1x4": "3710",
+        "Plate 2x2": "3022",
+        "Plate 2x3": "3021",
+        "Plate 2x4": "3020",
+        "Plate Round 1x1 Open Stud": "85861",
+        "Plate Round 1x1 Solid Stud": "6141",
+
+        # Shaping parts
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004",
+        "Slope Cheese 1x1": "54200",
+        "Slope Curved 2x1": "11477",
+        "Slope Curved 2x2": "15068"
+    },
+
     "architecture_studio_rebuild": {
-        "Plate 1x1": "3024",
-        "Plate 1x2": "3023",
-        "Plate 2x2": "3022",
-        "Tile 1x1": "3070b",
-        "Tile 1x2": "3069b",
-        "Tile 2x2": "3068b",
+        # Basic bricks
         "Brick 1x1": "3005",
         "Brick 1x2": "3004",
+        "Brick 1x3": "3622",
         "Brick 1x4": "3010",
+        "Brick 1x6": "3009",
+        "Brick 1x8": "3008",
+        "Brick 2x2": "3003",
+        "Brick 2x3": "3002",
+        "Brick 2x4": "3001",
+        "Brick 2x6": "2456",
+        "Brick 2x8": "3007",
+
+        # Plates
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 1x3": "3623",
+        "Plate 1x4": "3710",
+        "Plate 1x6": "3666",
+        "Plate 1x8": "3460",
+        "Plate 2x2": "3022",
+        "Plate 2x3": "3021",
+        "Plate 2x4": "3020",
+        "Plate 2x6": "3795",
+        "Plate 2x8": "3034",
+        "Plate 4x4": "3031",
+        "Plate 4x6": "3032",
+        "Plate 4x8": "3035",
+
+        # Tiles
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 1x4": "2431",
+        "Tile 2x2": "3068b",
+
+        # Architecture details
+        "Brick Round 1x1": "3062b",
         "Brick Round 2x2": "3941",
-        "Arch 1x4": "3659"
+        "Brick Round Corner 2x2": "85080",
+        "Arch 1x3x2": "6005",
+        "Arch 1x4": "3659",
+        "Curved Brick 1x2": "6091",
+        "Masonry Brick 1x2": "98283",
+        "Headlight Brick": "4070a",
+        "Brick Studs on 1 Side": "87087",
+        "Brick Studs on 2 Sides": "47905",
+        "Panel 1x2x1": "4865b",
+        "Panel 1x4x1": "15207",
+
+        # Slopes/roof/detail shaping
+        "Slope Cheese 1x1": "54200",
+        "Slope 1x2": "3040b",
+        "Slope 2x2": "3039",
+        "Slope 2x3": "3038",
+        "Slope 2x4": "3037",
+        "Slope Curved 2x1": "11477",
+        "Slope Curved 2x2": "15068",
+        "Slope Curved 4x1": "93273"
     },
+
     "vehicle_template_customization": {
+        # Body bricks
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004",
+        "Brick 1x3": "3622",
+        "Brick 1x4": "3010",
+        "Brick 1x6": "3009",
+        "Brick 2x2": "3003",
+        "Brick 2x3": "3002",
+        "Brick 2x4": "3001",
+
+        # Chassis plates
         "Plate 1x1": "3024",
         "Plate 1x2": "3023",
+        "Plate 1x3": "3623",
+        "Plate 1x4": "3710",
         "Plate 2x2": "3022",
+        "Plate 2x3": "3021",
+        "Plate 2x4": "3020",
+        "Plate 2x6": "3795",
+        "Plate 2x8": "3034",
+        "Plate 4x4": "3031",
+        "Plate 4x6": "3032",
+
+        # Smooth body details
         "Tile 1x1": "3070b",
         "Tile 1x2": "3069b",
+        "Tile 1x4": "2431",
+        "Tile 2x2": "3068b",
+        "Tile 2x4": "87079",
+
+        # Slopes and curves
+        "Slope Cheese 1x1": "54200",
+        "Slope 1x2": "3040b",
+        "Slope 2x2": "3039",
+        "Slope Curved 2x1": "11477",
+        "Slope Curved 2x2": "15068",
+        "Slope Curved 3x1": "50950",
+        "Slope Curved 4x1": "93273",
+
+        # Vehicle-specific functional pieces
+        "Plate Wheel Holder 2x2": "67687",
+        "Steering Wheel Assembly": "3829c01",
+        "Bar 3L": "87994",
+        "Bar 4L": "30374",
+        "Technic Axle 4": "3705",
+        "Technic Axle 6": "3706",
+        "Technic Pin": "3673"
+    },
+
+    "object_depth_to_voxel": {
+        # General bricks
+        "Brick 1x1": "3005",
+        "Brick 1x2": "3004",
+        "Brick 1x3": "3622",
+        "Brick 1x4": "3010",
+        "Brick 1x6": "3009",
+        "Brick 2x2": "3003",
+        "Brick 2x3": "3002",
+        "Brick 2x4": "3001",
+
+        # Plates
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 1x3": "3623",
+        "Plate 1x4": "3710",
+        "Plate 2x2": "3022",
+        "Plate 2x3": "3021",
+        "Plate 2x4": "3020",
+        "Plate 2x6": "3795",
+
+        # Surface tiles
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 1x4": "2431",
+        "Tile 2x2": "3068b",
+        "Tile Round 1x1": "98138",
+
+        # Shape helpers
+        "Brick Round 1x1": "3062b",
+        "Brick Round 2x2": "3941",
+        "Slope Cheese 1x1": "54200",
+        "Slope 1x2": "3040b",
+        "Slope 2x2": "3039",
+        "Slope Curved 2x1": "11477",
+        "Slope Curved 2x2": "15068"
+    },
+
+    "landscape_diorama_rebuild": {
+        # Ground plates
+        "Plate 1x1": "3024",
+        "Plate 1x2": "3023",
+        "Plate 1x3": "3623",
+        "Plate 1x4": "3710",
+        "Plate 2x2": "3022",
+        "Plate 2x3": "3021",
+        "Plate 2x4": "3020",
+        "Plate 2x6": "3795",
+        "Plate 4x4": "3031",
+        "Plate 4x6": "3032",
+        "Plate 4x8": "3035",
+
+        # Surface tiles
+        "Tile 1x1": "3070b",
+        "Tile 1x2": "3069b",
+        "Tile 1x4": "2431",
+        "Tile 2x2": "3068b",
+        "Tile Round 1x1": "98138",
+
+        # Terrain shaping
         "Brick 1x1": "3005",
         "Brick 1x2": "3004",
         "Brick 1x4": "3010",
-        "Slope 1x2": "3040"
+        "Slope Cheese 1x1": "54200",
+        "Slope 1x2": "3040b",
+        "Slope 2x2": "3039",
+        "Slope Curved 2x1": "11477",
+        "Slope Curved 2x2": "15068",
+
+        # Plants / nature details
+        "Plant Flower 4 Petals": "33291",
+        "Plant Flower 5 Petals": "24866",
+        "Plant Flower Stem": "3741",
+        "Plant Leaves 4x3": "2423",
+        "Plant 1x1 Round 3 Leaves": "32607"
     },
-    "object_depth_to_voxel": {
-        "Plate 1x1": "3024",
-        "Plate 1x2": "3023",
-        "Plate 2x2": "3022",
-        "Tile 1x1": "3070b",
-        "Tile 1x2": "3069b",
-        "Brick 1x1": "3005",
-        "Brick 1x2": "3004",
-        "Brick 1x4": "3010"
-    },
-    "landscape_diorama_rebuild": {
-        "Plate 1x1": "3024",
-        "Plate 1x2": "3023",
-        "Plate 2x2": "3022",
+
+    "manual_review_required": {
+        # Safe fallback parts only
         "Tile 1x1": "3070b",
         "Tile 1x2": "3069b",
         "Tile 2x2": "3068b",
-        "Brick 1x1": "3005",
-        "Brick 1x2": "3004"
-    },
-    "manual_review_required": {
         "Plate 1x1": "3024",
         "Plate 1x2": "3023",
         "Plate 2x2": "3022",
-        "Tile 1x1": "3070b",
-        "Tile 1x2": "3069b"
+        "Plate Round 1x1 Solid Stud": "6141",
+        "Tile Round 1x1": "98138"
     }
 }
 
@@ -350,6 +575,35 @@ def choose_eye_color(analysis):
     return "green"
 
 
+def choose_primary_color(analysis, fallback="light_bluish_gray"):
+    text = analysis_text_blob(analysis)
+
+    if "black" in text:
+        return "black"
+    if "white" in text:
+        return "white"
+    if "red" in text:
+        return "red"
+    if "blue" in text:
+        return "blue"
+    if "green" in text:
+        return "green"
+    if "yellow" in text:
+        return "yellow"
+    if "orange" in text:
+        return "orange"
+    if "tan" in text or "beige" in text or "cream" in text:
+        return "tan"
+    if "dark gray" in text or "dark grey" in text or "dark stone" in text:
+        return "dark_bluish_gray"
+    if "gray" in text or "grey" in text:
+        return "light_bluish_gray"
+    if "brown" in text:
+        return "reddish_brown"
+
+    return fallback
+
+
 def get_build_strategy(analysis):
     strategy = str(analysis.get("build_strategy", "")).strip()
 
@@ -368,8 +622,17 @@ def get_build_strategy(analysis):
     if model_type == "vehicle_model":
         return "vehicle_template_customization"
 
-    if category in ["pet_animal", "person_portrait"]:
-        return "mosaic_or_relief_conversion"
+    if category in ["pet_animal"]:
+        return "pet_template_customization"
+
+    if category in ["person_portrait"]:
+        return "portrait_bust_template"
+
+    if category in ["landscape_scene"]:
+        return "landscape_diorama_rebuild"
+
+    if category in ["vehicle"]:
+        return "vehicle_template_customization"
 
     return "object_depth_to_voxel"
 
@@ -613,22 +876,24 @@ def generate_architecture_plan_from_analysis(analysis, data):
 
     add_part_line(parts, "Plate 2x2", "green", 40 * m, analysis, "base_landscape", "lawn base")
     add_part_line(parts, "Plate 1x2", "dark_green", 30 * m, analysis, "base_landscape", "hedges")
-    add_part_line(parts, "Plate 1x1", "red", 16 * m, analysis, "base_landscape", "flower details")
+    add_part_line(parts, "Plant Flower 5 Petals", "red", 8 * m, analysis, "base_landscape", "flower details")
 
     add_part_line(parts, "Brick Round 2x2", "dark_bluish_gray", 90 * m, analysis, "round_towers", "round tower structure")
     add_part_line(parts, "Brick 1x2", "dark_bluish_gray", 180 * m, analysis, "castle_walls", "stone wall sections")
     add_part_line(parts, "Brick 1x4", "dark_bluish_gray", 80 * m, analysis, "castle_walls", "long wall sections")
+    add_part_line(parts, "Masonry Brick 1x2", "dark_bluish_gray", 50 * m, analysis, "castle_walls", "stone texture")
     add_part_line(parts, "Plate 1x1", "black", 28 * m, analysis, "feature_details", "small window openings")
 
     add_part_line(parts, "Arch 1x4", "tan", 8 * m, analysis, "central_arch", "arch structure")
     add_part_line(parts, "Plate 1x2", "tan", 60 * m, analysis, "central_arch", "facade layers")
     add_part_line(parts, "Tile 1x2", "white", 30 * m, analysis, "central_arch", "light facade highlights")
+    add_part_line(parts, "Headlight Brick", "tan", 20 * m, analysis, "feature_details", "offset facade details")
 
     build_modules = [
         {
             "module_id": "base_landscape",
             "name": "Landscape Base",
-            "description": "Green lawn base with hedges and small red flower details."
+            "description": "Green lawn base with hedges and small flower details."
         },
         {
             "module_id": "round_towers",
@@ -642,13 +907,13 @@ def generate_architecture_plan_from_analysis(analysis, data):
         },
         {
             "module_id": "central_arch",
-            "name": "Central Triumphal Arch",
-            "description": "Light-colored arch facade with layered decorative details."
+            "name": "Central Arch or Facade",
+            "description": "Light-colored arch or facade with layered decorative details."
         },
         {
             "module_id": "feature_details",
             "name": "Small Architectural Details",
-            "description": "Small windows, contrast marks, and ornamental accents."
+            "description": "Small windows, contrast marks, offsets, and ornamental accents."
         }
     ]
 
@@ -666,14 +931,15 @@ def generate_mosaic_plan_from_analysis(analysis, data):
     m = get_tier_multiplier(analysis)
     eye_color = choose_eye_color(analysis)
 
-    add_part_line(parts, "Tile 2x2", "tan", 80 * m, analysis, "main_color_zones", "light fur base color")
-    add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m, analysis, "main_color_zones", "tabby stripe and dark fur zones")
-    add_part_line(parts, "Tile 1x1", "black", 35 * m, analysis, "feature_details", "pupils and dark outlines")
+    add_part_line(parts, "Tile 2x2", "tan", 80 * m, analysis, "main_color_zones", "large light color zones")
+    add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m, analysis, "main_color_zones", "medium/dark color zones")
+    add_part_line(parts, "Tile 1x1", "black", 35 * m, analysis, "feature_details", "dark outlines and pupils")
 
     add_part_line(parts, "Tile 1x1", eye_color, 20 * m, analysis, "feature_details", "eye color detail")
+    add_part_line(parts, "Tile Round 1x1", eye_color, 12 * m, analysis, "feature_details", "round eye highlights")
 
-    add_part_line(parts, "Tile 1x1", "white", 60 * m, analysis, "feature_details", "white muzzle, paws, and highlights")
-    add_part_line(parts, "Plate 1x1", "red", 6 * m, analysis, "feature_details", "nose or warm facial detail")
+    add_part_line(parts, "Tile 1x1", "white", 60 * m, analysis, "feature_details", "white highlights")
+    add_part_line(parts, "Plate Round 1x1 Solid Stud", "red", 6 * m, analysis, "feature_details", "nose or small warm detail")
     add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m, analysis, "base_grid", "neutral background/base grid")
 
     build_modules = [
@@ -708,14 +974,119 @@ def generate_mosaic_plan_from_analysis(analysis, data):
     )
 
 
+def generate_pet_plan_from_analysis(analysis, data):
+    parts = []
+    m = get_tier_multiplier(analysis)
+    eye_color = choose_eye_color(analysis)
+
+    add_part_line(parts, "Tile 2x2", "tan", 60 * m, analysis, "main_body", "main fur color zones")
+    add_part_line(parts, "Tile 1x2", "reddish_brown", 80 * m, analysis, "main_body", "fur markings and stripes")
+    add_part_line(parts, "Tile 1x1", "black", 35 * m, analysis, "feature_details", "pupils and dark markings")
+    add_part_line(parts, "Tile Round 1x1", eye_color, 16 * m, analysis, "feature_details", "round eye color details")
+    add_part_line(parts, "Tile 1x1", "white", 50 * m, analysis, "feature_details", "paws, muzzle, and highlights")
+    add_part_line(parts, "Plate Round 1x1 Solid Stud", "red", 6 * m, analysis, "feature_details", "nose detail")
+
+    add_part_line(parts, "Brick 1x1", "tan", 25 * m, analysis, "shallow_relief", "small relief build-up")
+    add_part_line(parts, "Brick 1x2", "tan", 30 * m, analysis, "shallow_relief", "body/head relief layers")
+    add_part_line(parts, "Slope Cheese 1x1", "tan", 20 * m, analysis, "shallow_relief", "soft organic shaping")
+    add_part_line(parts, "Slope Curved 2x1", "tan", 12 * m, analysis, "shallow_relief", "rounded organic contours")
+
+    build_modules = [
+        {
+            "module_id": "base_grid",
+            "name": "Pet Relief Base",
+            "description": "Flat base matching the image crop and subject pose."
+        },
+        {
+            "module_id": "main_body",
+            "name": "Main Fur and Body Zones",
+            "description": "Large color zones representing fur, body outline, and major markings."
+        },
+        {
+            "module_id": "feature_details",
+            "name": "Face and Expression Details",
+            "description": "Eyes, nose, mouth, paws, stripes, highlights, and other recognizable details."
+        },
+        {
+            "module_id": "shallow_relief",
+            "name": "Organic Relief Layers",
+            "description": "Small 3D layers for face, ears, body, and soft curves."
+        }
+    ]
+
+    return make_response(
+        "Analysis-based pet brick plan generated",
+        analysis,
+        build_modules,
+        parts,
+        data
+    )
+
+
+def generate_portrait_plan_from_analysis(analysis, data):
+    parts = []
+    m = get_tier_multiplier(analysis)
+    eye_color = choose_eye_color(analysis)
+
+    add_part_line(parts, "Tile 2x2", "tan", 70 * m, analysis, "face_base", "main face color zones")
+    add_part_line(parts, "Tile 1x2", "reddish_brown", 50 * m, analysis, "hair_shadow", "hair or shadow zones")
+    add_part_line(parts, "Tile 1x1", "black", 40 * m, analysis, "feature_details", "eyes, pupils, outlines")
+    add_part_line(parts, "Tile Round 1x1", eye_color, 10 * m, analysis, "feature_details", "eye color detail")
+    add_part_line(parts, "Tile 1x1", "white", 35 * m, analysis, "feature_details", "eye highlights and light details")
+    add_part_line(parts, "Plate 1x2", "light_bluish_gray", 60 * m, analysis, "base_grid", "background/base grid")
+    add_part_line(parts, "Slope Cheese 1x1", "tan", 20 * m, analysis, "shallow_relief", "nose/face shaping")
+    add_part_line(parts, "Slope Curved 2x1", "tan", 14 * m, analysis, "shallow_relief", "soft facial contours")
+
+    build_modules = [
+        {
+            "module_id": "base_grid",
+            "name": "Portrait Base",
+            "description": "Flat or shallow-relief base matching the portrait crop."
+        },
+        {
+            "module_id": "face_base",
+            "name": "Face Color Zones",
+            "description": "Main skin-tone and face-shape regions."
+        },
+        {
+            "module_id": "hair_shadow",
+            "name": "Hair and Shadow Zones",
+            "description": "Darker areas for hair, eyebrows, outlines, and shadows."
+        },
+        {
+            "module_id": "feature_details",
+            "name": "Facial Details",
+            "description": "Eyes, nose, mouth, highlights, and key expression features."
+        },
+        {
+            "module_id": "shallow_relief",
+            "name": "Shallow Portrait Relief",
+            "description": "Small depth changes to suggest facial structure."
+        }
+    ]
+
+    return make_response(
+        "Analysis-based portrait brick plan generated",
+        analysis,
+        build_modules,
+        parts,
+        data
+    )
+
+
 def generate_vehicle_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
+    primary_color = choose_primary_color(analysis, fallback="light_bluish_gray")
 
-    add_part_line(parts, "Plate 2x2", "black", 20 * m, analysis, "chassis", "vehicle base")
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis, "body_shell", "main body shell")
-    add_part_line(parts, "Brick 1x4", "light_bluish_gray", 40 * m, analysis, "body_shell", "long body sections")
+    add_part_line(parts, "Plate 2x4", "black", 20 * m, analysis, "chassis", "vehicle base")
+    add_part_line(parts, "Plate 2x6", "black", 12 * m, analysis, "chassis", "long chassis sections")
+    add_part_line(parts, "Brick 1x2", primary_color, 80 * m, analysis, "body_shell", "main body shell")
+    add_part_line(parts, "Brick 1x4", primary_color, 40 * m, analysis, "body_shell", "long body sections")
     add_part_line(parts, "Tile 1x2", "black", 30 * m, analysis, "windows_lights", "windows and dark details")
+    add_part_line(parts, "Tile 1x4", "black", 14 * m, analysis, "windows_lights", "long window areas")
+    add_part_line(parts, "Slope 1x2", primary_color, 24 * m, analysis, "body_shell", "sloped body shaping")
+    add_part_line(parts, "Slope Curved 2x1", primary_color, 20 * m, analysis, "body_shell", "curved vehicle body shaping")
     add_part_line(parts, "Plate 1x1", "red", 8 * m, analysis, "windows_lights", "rear lights or small accents")
 
     build_modules = [
@@ -745,14 +1116,64 @@ def generate_vehicle_plan_from_analysis(analysis, data):
     )
 
 
-def generate_generic_plan_from_analysis(analysis, data):
+def generate_landscape_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "light_bluish_gray", 40 * m, analysis, "display_base", "simple display base")
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis, "main_subject", "main subject body")
+    add_part_line(parts, "Plate 2x4", "green", 80 * m, analysis, "terrain_base", "grass/terrain base")
+    add_part_line(parts, "Plate 2x6", "green", 40 * m, analysis, "terrain_base", "larger terrain base")
+    add_part_line(parts, "Tile 2x2", "blue", 30 * m, analysis, "water_sky", "water or sky color zone")
+    add_part_line(parts, "Tile 1x2", "light_bluish_gray", 40 * m, analysis, "rocks_paths", "rocks, path, or neutral scenery")
+    add_part_line(parts, "Slope 1x2", "dark_bluish_gray", 24 * m, analysis, "rocks_paths", "rocky slopes")
+    add_part_line(parts, "Slope Curved 2x1", "green", 20 * m, analysis, "terrain_base", "soft terrain contours")
+    add_part_line(parts, "Plant Leaves 4x3", "green", 10 * m, analysis, "plants", "leaf clusters")
+    add_part_line(parts, "Plant 1x1 Round 3 Leaves", "green", 16 * m, analysis, "plants", "small plants")
+    add_part_line(parts, "Plant Flower 5 Petals", "red", 8 * m, analysis, "plants", "flower accents")
+
+    build_modules = [
+        {
+            "module_id": "terrain_base",
+            "name": "Terrain Base",
+            "description": "Layered ground base for landscape or outdoor scenery."
+        },
+        {
+            "module_id": "water_sky",
+            "name": "Water or Sky Color Zones",
+            "description": "Blue scenic regions used when water or sky is part of the build."
+        },
+        {
+            "module_id": "rocks_paths",
+            "name": "Rocks and Paths",
+            "description": "Neutral slopes and tiles for rocks, paths, or mountains."
+        },
+        {
+            "module_id": "plants",
+            "name": "Plants and Natural Details",
+            "description": "Leaves, flower elements, and vegetation accents."
+        }
+    ]
+
+    return make_response(
+        "Analysis-based landscape brick plan generated",
+        analysis,
+        build_modules,
+        parts,
+        data
+    )
+
+
+def generate_generic_plan_from_analysis(analysis, data):
+    parts = []
+    m = get_tier_multiplier(analysis)
+    primary_color = choose_primary_color(analysis, fallback="light_bluish_gray")
+
+    add_part_line(parts, "Plate 2x2", primary_color, 40 * m, analysis, "display_base", "simple display base")
+    add_part_line(parts, "Brick 1x2", primary_color, 80 * m, analysis, "main_subject", "main subject body")
+    add_part_line(parts, "Brick 1x4", primary_color, 30 * m, analysis, "main_subject", "long body sections")
     add_part_line(parts, "Plate 1x2", "dark_bluish_gray", 40 * m, analysis, "main_subject", "shadow and detail layers")
-    add_part_line(parts, "Tile 1x2", "tan", 30 * m, analysis, "main_subject", "surface color detail")
+    add_part_line(parts, "Tile 1x2", "tan", 30 * m, analysis, "surface_detail", "surface color detail")
+    add_part_line(parts, "Slope Cheese 1x1", primary_color, 14 * m, analysis, "surface_detail", "small shape details")
+    add_part_line(parts, "Tile Round 1x1", "black", 8 * m, analysis, "feature_details", "small circular details")
 
     build_modules = [
         {
@@ -764,6 +1185,16 @@ def generate_generic_plan_from_analysis(analysis, data):
             "module_id": "main_subject",
             "name": "Main Subject",
             "description": "Template-based brick representation of the analyzed subject."
+        },
+        {
+            "module_id": "surface_detail",
+            "name": "Surface Details",
+            "description": "Small tiles and slopes for surface color and shape details."
+        },
+        {
+            "module_id": "feature_details",
+            "name": "Feature Details",
+            "description": "Small recognisable accents and contrast details."
         }
     ]
 
@@ -781,18 +1212,25 @@ def generate_from_analysis(data):
 
     model_type = analysis.get("recommended_model_type", "")
     category = analysis.get("category", "")
+    strategy = get_build_strategy(analysis)
 
-    if model_type == "mosaic_relief":
+    if model_type == "mosaic_relief" or strategy == "mosaic_or_relief_conversion":
         return generate_mosaic_plan_from_analysis(analysis, data)
 
-    if model_type in ["architecture_full_model", "architecture_facade"]:
+    if strategy == "pet_template_customization" or category == "pet_animal":
+        return generate_pet_plan_from_analysis(analysis, data)
+
+    if strategy == "portrait_bust_template" or category == "person_portrait":
+        return generate_portrait_plan_from_analysis(analysis, data)
+
+    if model_type in ["architecture_full_model", "architecture_facade"] or strategy == "architecture_studio_rebuild":
         return generate_architecture_plan_from_analysis(analysis, data)
 
-    if model_type == "vehicle_model":
+    if model_type == "vehicle_model" or strategy == "vehicle_template_customization" or category == "vehicle":
         return generate_vehicle_plan_from_analysis(analysis, data)
 
-    if category in ["pet_animal", "person_portrait"]:
-        return generate_mosaic_plan_from_analysis(analysis, data)
+    if strategy == "landscape_diorama_rebuild" or category == "landscape_scene":
+        return generate_landscape_plan_from_analysis(analysis, data)
 
     return generate_generic_plan_from_analysis(analysis, data)
 
