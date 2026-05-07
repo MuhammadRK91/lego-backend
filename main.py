@@ -376,6 +376,30 @@ def test_rebrickable():
         }
 
 
+@app.get("/rebrickable/colors")
+def get_rebrickable_colors():
+    if not rebrickable_is_configured():
+        return {
+            "ok": False,
+            "error": "Missing REBRICKABLE_API_KEY in Render environment variables."
+        }
+
+    try:
+        color_cache = get_rebrickable_colors_cache()
+
+        return {
+            "ok": True,
+            "count": len(color_cache["colors"]),
+            "colors": color_cache["colors"]
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e)
+        }
+
+
 def normalize_text(value):
     value = str(value or "").lower().strip()
     value = value.replace("-", " ")
@@ -462,7 +486,12 @@ def get_rebrickable_colors_cache():
             "id": color_id,
             "name": name,
             "rgb": color.get("rgb"),
-            "is_trans": color.get("is_trans")
+            "is_trans": color.get("is_trans"),
+            "num_parts": color.get("num_parts"),
+            "num_sets": color.get("num_sets"),
+            "first_year": color.get("first_year"),
+            "last_year": color.get("last_year"),
+            "external_ids": color.get("external_ids")
         }
 
     return {
@@ -491,7 +520,12 @@ def resolve_rebrickable_color(color_name):
         "id": None,
         "name": color_name,
         "rgb": None,
-        "is_trans": False
+        "is_trans": False,
+        "num_parts": None,
+        "num_sets": None,
+        "first_year": None,
+        "last_year": None,
+        "external_ids": None
     }
 
 
@@ -703,6 +737,7 @@ def add_part_line(parts, part_name, color, qty, analysis, module_id=None, purpos
         "rebrickable_color_id": color_data.get("id"),
         "rebrickable_color_name": color_data.get("name"),
         "rebrickable_color_rgb": color_data.get("rgb"),
+        "rebrickable_color_external_ids": color_data.get("external_ids"),
         "quantity": int(qty),
         "strategy": get_build_strategy(analysis),
         "module_id": module_id,
@@ -833,7 +868,7 @@ def validate_parts_with_rebrickable(parts):
 
 def make_response(message, analysis, build_modules, parts, data):
     validate = bool(data.get("validate_with_rebrickable", True))
-    include_export = bool(data.get("include_wanted_list_xml", True))
+    include_export = bool(data.get("include_basic_xml_export", True))
 
     if validate:
         parts = validate_parts_with_rebrickable(parts)
@@ -1244,8 +1279,7 @@ async def generate_lego_model(data: dict):
             "error": "Missing analysis JSON",
             "expected_body": {
                 "analysis": {},
-                "include_bricklink_parts": False,
-                "include_wanted_list_xml": True,
+                "include_basic_xml_export": True,
                 "include_build_modules": True,
                 "detail_level": 2,
                 "validate_with_rebrickable": True
