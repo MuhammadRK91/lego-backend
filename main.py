@@ -321,7 +321,7 @@ def root():
         "catalog_source": "rebrickable",
         "rebrickable_api_configured": rebrickable_is_configured(),
         "external_catalog_api_used": "rebrickable",
-        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable. If original_image_url is sent with include_image_geometry=true, the server creates image-based placement geometry. If include_preview_image=true, the server returns a 2D stud preview as base64 PNG. If include_clean_mosaic_preview=true, it also returns a cleaner square-tile preview without studs."
+        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable. If original_image_url is sent with include_image_geometry=true, the server creates image-based placement geometry. If include_preview_image=true, the server returns a 2D stud preview as base64 PNG."
     }
 
 
@@ -1586,71 +1586,6 @@ def create_stud_preview_base64(geometry, cell_size=14):
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
-def create_clean_mosaic_preview_base64(geometry, cell_size=6, draw_grid=False):
-    """
-    Creates a cleaner square-tile mosaic preview from image_geometry.
-    This preview does not draw studs, so photo details are easier to see.
-    Returns PNG as base64 string.
-    """
-    width = int(geometry.get("width", 128))
-    height = int(geometry.get("height", 72))
-
-    cell_size = clamp_int(cell_size, 3, 30, 6)
-
-    canvas_width = width * cell_size
-    canvas_height = height * cell_size
-
-    image = Image.new("RGB", (canvas_width, canvas_height), (245, 245, 245))
-    draw = ImageDraw.Draw(image)
-
-    placements = geometry.get("placements", [])
-
-    for placement in placements:
-        x = int(placement.get("x", 0))
-        y = int(placement.get("y", 0))
-
-        px = x * cell_size
-        py = y * cell_size
-
-        color_hex = placement.get("rebrickable_color_rgb")
-
-        if color_hex:
-            color_rgb = hex_to_rgb(color_hex)
-        else:
-            source_rgb = placement.get("source_rgb", {})
-            color_rgb = (
-                int(source_rgb.get("r", 160)),
-                int(source_rgb.get("g", 165)),
-                int(source_rgb.get("b", 169))
-            )
-
-        height_plates = int(placement.get("height_plates", 1))
-
-        # Keep relief visible but subtle. Strong contrast makes photo previews noisy.
-        if height_plates >= 5:
-            fill_rgb = lighten_rgb(color_rgb, 6)
-        elif height_plates <= 2:
-            fill_rgb = darken_rgb(color_rgb, 6)
-        else:
-            fill_rgb = color_rgb
-
-        if draw_grid:
-            outline_rgb = darken_rgb(fill_rgb, 25)
-        else:
-            outline_rgb = fill_rgb
-
-        draw.rectangle(
-            [px, py, px + cell_size - 1, py + cell_size - 1],
-            fill=fill_rgb,
-            outline=outline_rgb
-        )
-
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-
 def generate_from_analysis(data):
     analysis = data.get("analysis", {})
 
@@ -1695,9 +1630,6 @@ async def generate_lego_model(data: dict):
                 "geometry_height": 48,
                 "include_preview_image": True,
                 "preview_cell_size": 6,
-                "include_clean_mosaic_preview": True,
-                "clean_preview_cell_size": 6,
-                "clean_preview_draw_grid": False,
                 "include_basic_xml_export": True,
                 "include_build_modules": True,
                 "detail_level": 2,
@@ -1746,20 +1678,6 @@ async def generate_lego_model(data: dict):
                 )
                 response["preview_image_format"] = "png"
                 response["preview_image_type"] = "2d_stud_preview"
-
-            include_clean_mosaic_preview = bool(data.get("include_clean_mosaic_preview", True))
-
-            if include_clean_mosaic_preview:
-                clean_preview_cell_size = data.get("clean_preview_cell_size", data.get("preview_cell_size", 6))
-                clean_preview_draw_grid = bool(data.get("clean_preview_draw_grid", False))
-
-                response["clean_mosaic_preview_base64"] = create_clean_mosaic_preview_base64(
-                    image_geometry,
-                    cell_size=clean_preview_cell_size,
-                    draw_grid=clean_preview_draw_grid
-                )
-                response["clean_mosaic_preview_format"] = "png"
-                response["clean_mosaic_preview_type"] = "clean_square_tile_preview"
 
         except Exception as e:
             response["generation_mode"] = "analysis_only_geometry_failed"
