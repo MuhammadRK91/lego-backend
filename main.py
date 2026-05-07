@@ -92,7 +92,7 @@ def root():
         "mode": "analysis_only",
         "catalog_source": "rebrickable",
         "rebrickable_api_configured": rebrickable_is_configured(),
-        "bricklink_api_used": False,
+        "external_catalog_api_used": "rebrickable",
         "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable."
     }
 
@@ -168,20 +168,31 @@ def normalize_color_alias(color):
         "beige": "tan",
         "cream": "tan",
         "sand": "tan",
+
         "dark brown": "reddish brown",
         "reddish brown": "reddish brown",
+
         "grey": "light bluish gray",
         "gray": "light bluish gray",
         "light grey": "light bluish gray",
         "light gray": "light bluish gray",
         "light bluish grey": "light bluish gray",
+
         "dark grey": "dark bluish gray",
         "dark gray": "dark bluish gray",
         "dark bluish grey": "dark bluish gray",
+
         "pale pink": "red",
         "pink": "red",
-        "light green": "green",
-        "hazel": "green",
+
+        "light green": "lime",
+        "bright green": "lime",
+        "bright light green": "bright light green",
+        "hazel": "lime",
+        "green eyes": "lime",
+        "light green eyes": "lime",
+        "hazel eyes": "lime",
+
         "dark green": "dark green"
     }
 
@@ -237,7 +248,7 @@ def get_rebrickable_colors_cache():
 
 def resolve_rebrickable_color(color_name):
     """
-    Converts planner color names like 'tan' or 'light_bluish_gray'
+    Converts planner color names like 'tan', 'lime', or 'light_bluish_gray'
     into actual Rebrickable color records from the API.
     """
     normalized = normalize_color_alias(color_name)
@@ -257,6 +268,86 @@ def resolve_rebrickable_color(color_name):
         "rgb": None,
         "is_trans": False
     }
+
+
+def analysis_text_blob(analysis):
+    parts = []
+
+    keys = [
+        "subject",
+        "category",
+        "scene_type",
+        "viewing_angle",
+        "camera_crop",
+        "pose_or_orientation",
+        "approximate_complexity",
+        "recommended_model_type",
+        "build_strategy",
+        "automation_level",
+        "product_title",
+        "short_product_description"
+    ]
+
+    for key in keys:
+        value = analysis.get(key)
+        if isinstance(value, str):
+            parts.append(value)
+
+    list_keys = [
+        "main_objects",
+        "secondary_objects",
+        "background_elements",
+        "foreground_elements",
+        "visible_materials",
+        "dominant_shapes",
+        "color_palette",
+        "texture_details",
+        "important_details_to_preserve",
+        "relative_object_positions",
+        "brick_conversion_notes",
+        "build_challenges"
+    ]
+
+    for key in list_keys:
+        value = analysis.get(key)
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value)
+
+    structure_geometry = analysis.get("structure_geometry", {})
+    if isinstance(structure_geometry, dict):
+        for value in structure_geometry.values():
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, list):
+                parts.extend(str(item) for item in value)
+
+    return normalize_text(" ".join(parts))
+
+
+def choose_eye_color(analysis):
+    """
+    Chooses a better eye color for pet/portrait mosaic details.
+    This uses the image analysis text, then resolves the color dynamically
+    through Rebrickable colors API.
+    """
+    text = analysis_text_blob(analysis)
+
+    if "light green" in text or "bright green" in text or "green eye" in text or "green eyes" in text:
+        return "lime"
+
+    if "hazel" in text:
+        return "lime"
+
+    if "yellow eye" in text or "yellow eyes" in text or "amber eye" in text or "amber eyes" in text:
+        return "yellow"
+
+    if "blue eye" in text or "blue eyes" in text:
+        return "medium blue"
+
+    if "brown eye" in text or "brown eyes" in text:
+        return "reddish_brown"
+
+    return "green"
 
 
 def get_build_strategy(analysis):
@@ -324,7 +415,7 @@ def get_tier_multiplier(analysis):
     return 1
 
 
-def add_part_line(parts, part_name, color, qty, analysis):
+def add_part_line(parts, part_name, color, qty, analysis, module_id=None, purpose=None):
     color_data = resolve_rebrickable_color(color)
     part_data = resolve_part(part_name, analysis)
 
@@ -351,6 +442,8 @@ def add_part_line(parts, part_name, color, qty, analysis):
         "rebrickable_color_rgb": color_data.get("rgb"),
         "quantity": int(qty),
         "strategy": get_build_strategy(analysis),
+        "module_id": module_id,
+        "purpose": purpose,
         "validation": {
             "checked": False,
             "part_exists": None,
@@ -488,8 +581,7 @@ def make_response(message, analysis, build_modules, parts, data):
         "catalog_source": "rebrickable",
         "rebrickable_api_configured": rebrickable_is_configured(),
         "rebrickable_validation_enabled": validate,
-        "bricklink_api_used": False,
-        "bricklink_xml_export_available": False,
+        "external_catalog_api_used": "rebrickable",
         "selected_build_strategy": get_build_strategy(analysis),
         "allowed_parts_used": get_allowed_parts_for_analysis(analysis),
         "subject": analysis.get("subject"),
@@ -519,18 +611,18 @@ def generate_architecture_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "green", 40 * m, analysis)
-    add_part_line(parts, "Plate 1x2", "dark_green", 30 * m, analysis)
-    add_part_line(parts, "Plate 1x1", "red", 16 * m, analysis)
+    add_part_line(parts, "Plate 2x2", "green", 40 * m, analysis, "base_landscape", "lawn base")
+    add_part_line(parts, "Plate 1x2", "dark_green", 30 * m, analysis, "base_landscape", "hedges")
+    add_part_line(parts, "Plate 1x1", "red", 16 * m, analysis, "base_landscape", "flower details")
 
-    add_part_line(parts, "Brick Round 2x2", "dark_bluish_gray", 90 * m, analysis)
-    add_part_line(parts, "Brick 1x2", "dark_bluish_gray", 180 * m, analysis)
-    add_part_line(parts, "Brick 1x4", "dark_bluish_gray", 80 * m, analysis)
-    add_part_line(parts, "Plate 1x1", "black", 28 * m, analysis)
+    add_part_line(parts, "Brick Round 2x2", "dark_bluish_gray", 90 * m, analysis, "round_towers", "round tower structure")
+    add_part_line(parts, "Brick 1x2", "dark_bluish_gray", 180 * m, analysis, "castle_walls", "stone wall sections")
+    add_part_line(parts, "Brick 1x4", "dark_bluish_gray", 80 * m, analysis, "castle_walls", "long wall sections")
+    add_part_line(parts, "Plate 1x1", "black", 28 * m, analysis, "feature_details", "small window openings")
 
-    add_part_line(parts, "Arch 1x4", "tan", 8 * m, analysis)
-    add_part_line(parts, "Plate 1x2", "tan", 60 * m, analysis)
-    add_part_line(parts, "Tile 1x2", "white", 30 * m, analysis)
+    add_part_line(parts, "Arch 1x4", "tan", 8 * m, analysis, "central_arch", "arch structure")
+    add_part_line(parts, "Plate 1x2", "tan", 60 * m, analysis, "central_arch", "facade layers")
+    add_part_line(parts, "Tile 1x2", "white", 30 * m, analysis, "central_arch", "light facade highlights")
 
     build_modules = [
         {
@@ -552,6 +644,11 @@ def generate_architecture_plan_from_analysis(analysis, data):
             "module_id": "central_arch",
             "name": "Central Triumphal Arch",
             "description": "Light-colored arch facade with layered decorative details."
+        },
+        {
+            "module_id": "feature_details",
+            "name": "Small Architectural Details",
+            "description": "Small windows, contrast marks, and ornamental accents."
         }
     ]
 
@@ -567,21 +664,17 @@ def generate_architecture_plan_from_analysis(analysis, data):
 def generate_mosaic_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
+    eye_color = choose_eye_color(analysis)
 
-    add_part_line(parts, "Tile 2x2", "tan", 80 * m, analysis)
-    add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m, analysis)
-    add_part_line(parts, "Tile 1x1", "black", 35 * m, analysis)
+    add_part_line(parts, "Tile 2x2", "tan", 80 * m, analysis, "main_color_zones", "light fur base color")
+    add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m, analysis, "main_color_zones", "tabby stripe and dark fur zones")
+    add_part_line(parts, "Tile 1x1", "black", 35 * m, analysis, "feature_details", "pupils and dark outlines")
 
-    # Eye color for pets/portraits.
-    add_part_line(parts, "Tile 1x1", "green", 20 * m, analysis)
+    add_part_line(parts, "Tile 1x1", eye_color, 20 * m, analysis, "feature_details", "eye color detail")
 
-    add_part_line(parts, "Tile 1x1", "white", 60 * m, analysis)
-
-    # Nose / small warm detail.
-    add_part_line(parts, "Plate 1x1", "red", 6 * m, analysis)
-
-    # Neutral background/base grid.
-    add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m, analysis)
+    add_part_line(parts, "Tile 1x1", "white", 60 * m, analysis, "feature_details", "white muzzle, paws, and highlights")
+    add_part_line(parts, "Plate 1x1", "red", 6 * m, analysis, "feature_details", "nose or warm facial detail")
+    add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m, analysis, "base_grid", "neutral background/base grid")
 
     build_modules = [
         {
@@ -619,11 +712,11 @@ def generate_vehicle_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "black", 20 * m, analysis)
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis)
-    add_part_line(parts, "Brick 1x4", "light_bluish_gray", 40 * m, analysis)
-    add_part_line(parts, "Tile 1x2", "black", 30 * m, analysis)
-    add_part_line(parts, "Plate 1x1", "red", 8 * m, analysis)
+    add_part_line(parts, "Plate 2x2", "black", 20 * m, analysis, "chassis", "vehicle base")
+    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis, "body_shell", "main body shell")
+    add_part_line(parts, "Brick 1x4", "light_bluish_gray", 40 * m, analysis, "body_shell", "long body sections")
+    add_part_line(parts, "Tile 1x2", "black", 30 * m, analysis, "windows_lights", "windows and dark details")
+    add_part_line(parts, "Plate 1x1", "red", 8 * m, analysis, "windows_lights", "rear lights or small accents")
 
     build_modules = [
         {
@@ -656,10 +749,10 @@ def generate_generic_plan_from_analysis(analysis, data):
     parts = []
     m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "light_bluish_gray", 40 * m, analysis)
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis)
-    add_part_line(parts, "Plate 1x2", "dark_bluish_gray", 40 * m, analysis)
-    add_part_line(parts, "Tile 1x2", "tan", 30 * m, analysis)
+    add_part_line(parts, "Plate 2x2", "light_bluish_gray", 40 * m, analysis, "display_base", "simple display base")
+    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m, analysis, "main_subject", "main subject body")
+    add_part_line(parts, "Plate 1x2", "dark_bluish_gray", 40 * m, analysis, "main_subject", "shadow and detail layers")
+    add_part_line(parts, "Tile 1x2", "tan", 30 * m, analysis, "main_subject", "surface color detail")
 
     build_modules = [
         {
