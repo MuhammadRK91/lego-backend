@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import os
 import re
 import requests
@@ -8,6 +9,16 @@ from io import BytesIO
 from PIL import Image, ImageFilter, ImageDraw
 
 app = FastAPI()
+
+# Allow frontend apps like Bolt, Vite, or your future website to call this API.
+# For production, replace ["*"] with your real frontend domain.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 REBRICKABLE_BASE_URL = "https://rebrickable.com/api/v3"
 
