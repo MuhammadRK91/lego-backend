@@ -445,7 +445,34 @@ def normalize_color_alias(color):
         "light green eyes": "lime",
         "hazel eyes": "lime",
 
-        "dark green": "dark green"
+        "dark green": "dark green",
+
+        # Extra architecture / stone aliases
+        "very light gray": "very light gray",
+        "very light grey": "very light gray",
+        "medium gray": "light bluish gray",
+        "medium grey": "light bluish gray",
+        "dark stone gray": "dark bluish gray",
+        "dark stone grey": "dark bluish gray",
+        "medium stone gray": "light bluish gray",
+        "medium stone grey": "light bluish gray",
+
+        "light tan": "tan",
+        "dark tan": "dark tan",
+        "sand yellow": "tan",
+        "sand beige": "tan",
+        "masonry tan": "tan",
+        "nougat": "nougat",
+        "medium nougat": "medium nougat",
+
+        "brown": "brown",
+        "dark brown": "dark brown",
+
+        "sand green": "sand green",
+        "sand blue": "sand blue",
+        "light blue": "medium blue",
+        "sky blue": "medium blue",
+        "dark red": "dark red"
     }
 
     return aliases.get(color, color)
@@ -1251,22 +1278,58 @@ def generate_generic_plan_from_analysis(analysis, data):
 # ---------------------------------------------------------------------
 
 LEGO_RGB_PALETTE = {
-    "black": (0, 0, 0),
+    # Core neutrals
+    "black": (5, 19, 29),
     "white": (255, 255, 255),
-    "red": (196, 40, 28),
-    "blue": (13, 105, 171),
-    "green": (40, 127, 70),
-    "dark_green": (24, 70, 50),
-    "yellow": (245, 205, 47),
-    "orange": (218, 133, 64),
-    "tan": (215, 197, 153),
-    "reddish_brown": (88, 42, 18),
+
+    # Stone / castle grays
+    "very_light_gray": (229, 228, 222),
+    "light_gray": (155, 161, 157),
     "light_bluish_gray": (160, 165, 169),
+    "medium_gray": (128, 128, 128),
+    "dark_gray": (109, 110, 108),
     "dark_bluish_gray": (99, 95, 98),
+
+    # Sand / tan / masonry colors
+    "light_tan": (238, 229, 195),
+    "tan": (215, 197, 153),
+    "dark_tan": (149, 138, 115),
+    "sand_yellow": (215, 197, 153),
+    "nougat": (204, 142, 104),
+    "medium_nougat": (170, 125, 85),
+
+    # Browns / shadows
+    "dark_brown": (53, 33, 0),
+    "brown": (96, 57, 19),
+    "reddish_brown": (88, 42, 18),
+
+    # Greens / landscape
+    "sand_green": (120, 144, 129),
+    "dark_green": (24, 70, 50),
+    "green": (40, 127, 70),
     "lime": (187, 233, 11),
+
+    # Blues / sky
+    "sand_blue": (96, 116, 161),
+    "light_blue": (180, 210, 227),
     "medium_blue": (90, 147, 219),
+    "blue": (13, 105, 171),
+
+    # Warm accent colors
+    "dark_red": (123, 46, 47),
+    "red": (196, 40, 28),
+    "orange": (218, 133, 64),
+    "yellow": (245, 205, 47),
     "pink": (255, 167, 176)
 }
+
+def rgb_tuple_to_hex(rgb):
+    if not rgb:
+        return None
+
+    r, g, b = rgb
+    return f"{int(r):02X}{int(g):02X}{int(b):02X}"
+
 
 
 def clamp_int(value, minimum, maximum, default):
@@ -1359,17 +1422,21 @@ def height_plates_from_rgb(rgb, edge_value=0):
 
 def resolve_geometry_color(color_name):
     """
-    Uses your existing Rebrickable color resolver when available.
-    If Rebrickable is not configured, geometry still works with color names.
+    Uses Rebrickable color data when available.
+    If a custom preview color is not found in Rebrickable, it falls back to
+    the local LEGO_RGB_PALETTE RGB so the preview does not turn gray.
     """
+    palette_rgb_hex = rgb_tuple_to_hex(LEGO_RGB_PALETTE.get(color_name))
+
     try:
         color_data = resolve_rebrickable_color(color_name)
+        resolved_rgb = color_data.get("rgb") or palette_rgb_hex
 
         return {
             "planner_color": color_name,
             "rebrickable_color_id": color_data.get("id"),
-            "rebrickable_color_name": color_data.get("name"),
-            "rebrickable_color_rgb": color_data.get("rgb")
+            "rebrickable_color_name": color_data.get("name") or color_name,
+            "rebrickable_color_rgb": resolved_rgb
         }
 
     except Exception:
@@ -1377,7 +1444,7 @@ def resolve_geometry_color(color_name):
             "planner_color": color_name,
             "rebrickable_color_id": None,
             "rebrickable_color_name": color_name,
-            "rebrickable_color_rgb": None
+            "rebrickable_color_rgb": palette_rgb_hex
         }
 
 
