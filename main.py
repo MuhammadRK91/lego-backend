@@ -3,6 +3,8 @@ import os
 import re
 import requests
 from functools import lru_cache
+from io import BytesIO
+from PIL import Image, ImageFilter
 
 app = FastAPI()
 
@@ -314,11 +316,11 @@ ALLOWED_PARTS_BY_STRATEGY = {
 def root():
     return {
         "status": "running",
-        "mode": "analysis_only",
+        "mode": "analysis_plus_optional_image_geometry",
         "catalog_source": "rebrickable",
         "rebrickable_api_configured": rebrickable_is_configured(),
         "external_catalog_api_used": "rebrickable",
-        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable."
+        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable. If original_image_url is sent with include_image_geometry=true, the server also creates image-based placement geometry."
     }
 
 
@@ -1242,6 +1244,215 @@ def generate_generic_plan_from_analysis(analysis, data):
     )
 
 
+
+# ---------------------------------------------------------------------
+# Image-to-placement geometry helpers
+# ---------------------------------------------------------------------
+
+LEGO_RGB_PALETTE = {
+    "black": (0, 0, 0),
+    "white": (255, 255, 255),
+    "red": (196, 40, 28),
+    "blue": (13, 105, 171),
+    "green": (40, 127, 70),
+    "dark_green": (24, 70, 50),
+    "yellow": (245, 205, 47),
+    "orange": (218, 133, 64),
+    "tan": (215, 197, 153),
+    "reddish_brown": (88, 42, 18),
+    "light_bluish_gray": (160, 165, 169),
+    "dark_bluish_gray": (99, 95, 98),
+    "lime": (187, 233, 11),
+    "medium_blue": (90, 147, 219),
+    "pink": (255, 167, 176)
+}
+
+
+def clamp_int(value, minimum, maximum, default):
+    try:
+        value = int(value)
+    except Exception:
+        return default
+
+    return max(minimum, min(maximum, value))
+
+
+def download_image_from_url(image_url):
+    if not image_url:
+        raise ValueError("Missing original_image_url.")
+
+    response = requests.get(image_url, timeout=30)
+    response.raise_for_status()
+
+    return Image.open(BytesIO(response.content)).convert("RGB")
+
+
+def resize_image_keep_aspect(image, width, height):
+    """
+    Makes a square/rectangular canvas without stretching the source image.
+    This keeps the uploaded image shape more natural for mosaic geometry.
+    """
+    image.thumbnail((width, height))
+
+    canvas = Image.new("RGB", (width, height), (255, 255, 255))
+
+    offset_x = (width - image.width) // 2
+    offset_y = (height - image.height) // 2
+
+    canvas.paste(image, (offset_x, offset_y))
+    return canvas
+
+
+def closest_lego_color_name(rgb):
+    r, g, b = rgb
+
+    best_name = "light_bluish_gray"
+    best_distance = None
+
+    for color_name, color_rgb in LEGO_RGB_PALETTE.items():
+        cr, cg, cb = color_rgb
+
+        distance = (
+            (r - cr) ** 2 +
+            (g - cg) ** 2 +
+            (b - cb) ** 2
+        )
+
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_name = color_name
+
+    return best_name
+
+
+def brightness_from_rgb(rgb):
+    r, g, b = rgb
+    return (0.299 * r) + (0.587 * g) + (0.114 * b)
+
+
+def height_plates_from_rgb(rgb, edge_value=0):
+    """
+    Basic relief height:
+    - darker pixels become slightly lower
+    - brighter pixels become slightly higher
+    - edge pixels get a small boost so facial/details are more visible
+    """
+    brightness = brightness_from_rgb(rgb)
+
+    if brightness < 55:
+        height = 1
+    elif brightness < 100:
+        height = 2
+    elif brightness < 150:
+        height = 3
+    elif brightness < 205:
+        height = 4
+    else:
+        height = 5
+
+    if edge_value > 35:
+        height += 1
+
+    return max(1, min(6, height))
+
+
+def resolve_geometry_color(color_name):
+    """
+    Uses your existing Rebrickable color resolver when available.
+    If Rebrickable is not configured, geometry still works with color names.
+    """
+    try:
+        color_data = resolve_rebrickable_color(color_name)
+
+        return {
+            "planner_color": color_name,
+            "rebrickable_color_id": color_data.get("id"),
+            "rebrickable_color_name": color_data.get("name"),
+            "rebrickable_color_rgb": color_data.get("rgb")
+        }
+
+    except Exception:
+        return {
+            "planner_color": color_name,
+            "rebrickable_color_id": None,
+            "rebrickable_color_name": color_name,
+            "rebrickable_color_rgb": None
+        }
+
+
+def generate_image_geometry(image_url, width=48, height=48, part_name="Plate 1x1"):
+    """
+    Converts the original uploaded image into real grid placement geometry.
+    Each placement has x, y, z, color, part number, and relief height.
+    This is a practical first geometry layer for mosaic/shallow relief output.
+    """
+    width = clamp_int(width, 8, 128, 48)
+    height = clamp_int(height, 8, 128, 48)
+
+    image = download_image_from_url(image_url)
+    image = resize_image_keep_aspect(image, width, height)
+
+    edge_image = image.convert("L").filter(ImageFilter.FIND_EDGES)
+
+    part_num = "3024"
+
+    placements = []
+    color_cache = {}
+
+    for y in range(height):
+        for x in range(width):
+            rgb = image.getpixel((x, y))
+            edge_value = edge_image.getpixel((x, y))
+
+            color_name = closest_lego_color_name(rgb)
+
+            if color_name not in color_cache:
+                color_cache[color_name] = resolve_geometry_color(color_name)
+
+            color_data = color_cache[color_name]
+            height_plates = height_plates_from_rgb(rgb, edge_value=edge_value)
+
+            placements.append({
+                "x": x,
+                "y": y,
+                "z": 0,
+                "part_name": part_name,
+                "part_num": part_num,
+                "color": color_name,
+                "rebrickable_color_id": color_data.get("rebrickable_color_id"),
+                "rebrickable_color_name": color_data.get("rebrickable_color_name"),
+                "height_plates": height_plates,
+                "orientation": 0,
+                "source_rgb": {
+                    "r": rgb[0],
+                    "g": rgb[1],
+                    "b": rgb[2]
+                }
+            })
+
+    return {
+        "type": "image_pixel_mosaic_relief_geometry",
+        "source": "original_image_url",
+        "width": width,
+        "height": height,
+        "stud_count": width * height,
+        "part_name": part_name,
+        "part_num": part_num,
+        "max_height_plates": 6,
+        "placements": placements
+    }
+
+
+def summarize_geometry_parts(geometry):
+    summary = {}
+
+    for placement in geometry.get("placements", []):
+        color_name = placement.get("rebrickable_color_name") or placement.get("color")
+        key = f"{placement.get('part_name')} - {color_name}"
+        summary[key] = summary.get(key, 0) + 1
+
+    return summary
+
 def generate_from_analysis(data):
     analysis = data.get("analysis", {})
 
@@ -1279,6 +1490,11 @@ async def generate_lego_model(data: dict):
             "error": "Missing analysis JSON",
             "expected_body": {
                 "analysis": {},
+                "original_image_url": "https://...",
+                "original_image_object_name": "uploads/user-id/file.jpg",
+                "include_image_geometry": True,
+                "geometry_width": 48,
+                "geometry_height": 48,
                 "include_basic_xml_export": True,
                 "include_build_modules": True,
                 "detail_level": 2,
@@ -1286,4 +1502,38 @@ async def generate_lego_model(data: dict):
             }
         }
 
-    return generate_from_analysis(data)
+    response = generate_from_analysis(data)
+
+    original_image_url = data.get("original_image_url")
+    include_image_geometry = bool(data.get("include_image_geometry", False))
+
+    response["original_image_url"] = original_image_url
+    response["original_image_object_name"] = data.get("original_image_object_name")
+    response["include_image_geometry"] = include_image_geometry
+
+    if include_image_geometry:
+        if not original_image_url:
+            response["image_geometry_error"] = "include_image_geometry=true but original_image_url is missing."
+            return response
+
+        try:
+            geometry_width = data.get("geometry_width", 48)
+            geometry_height = data.get("geometry_height", 48)
+
+            image_geometry = generate_image_geometry(
+                original_image_url,
+                width=geometry_width,
+                height=geometry_height,
+                part_name="Plate 1x1"
+            )
+
+            response["generation_mode"] = "analysis_plus_image_geometry"
+            response["image_geometry"] = image_geometry
+            response["image_geometry_parts_summary"] = summarize_geometry_parts(image_geometry)
+            response["image_geometry_estimated_total_parts"] = len(image_geometry.get("placements", []))
+
+        except Exception as e:
+            response["generation_mode"] = "analysis_only_geometry_failed"
+            response["image_geometry_error"] = str(e)
+
+    return response
