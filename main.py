@@ -2,9 +2,10 @@ from fastapi import FastAPI
 import os
 import re
 import requests
+import base64
 from functools import lru_cache
 from io import BytesIO
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageDraw
 
 app = FastAPI()
 
@@ -320,7 +321,7 @@ def root():
         "catalog_source": "rebrickable",
         "rebrickable_api_configured": rebrickable_is_configured(),
         "external_catalog_api_used": "rebrickable",
-        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable. If original_image_url is sent with include_image_geometry=true, the server also creates image-based placement geometry."
+        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable. If original_image_url is sent with include_image_geometry=true, the server creates image-based placement geometry. If include_preview_image=true, the server also returns a 2D stud preview as base64 PNG."
     }
 
 
@@ -1453,6 +1454,126 @@ def summarize_geometry_parts(geometry):
 
     return summary
 
+
+def hex_to_rgb(hex_value, fallback=(160, 165, 169)):
+    if not hex_value:
+        return fallback
+
+    try:
+        hex_value = str(hex_value).replace("#", "").strip()
+
+        if len(hex_value) != 6:
+            return fallback
+
+        return (
+            int(hex_value[0:2], 16),
+            int(hex_value[2:4], 16),
+            int(hex_value[4:6], 16)
+        )
+
+    except Exception:
+        return fallback
+
+
+def darken_rgb(rgb, amount=35):
+    r, g, b = rgb
+    return (
+        max(0, r - amount),
+        max(0, g - amount),
+        max(0, b - amount)
+    )
+
+
+def lighten_rgb(rgb, amount=35):
+    r, g, b = rgb
+    return (
+        min(255, r + amount),
+        min(255, g + amount),
+        min(255, b + amount)
+    )
+
+
+def create_stud_preview_base64(geometry, cell_size=14):
+    """
+    Creates a 2D LEGO-style stud preview from image_geometry.
+    Returns PNG as base64 string.
+    """
+    width = int(geometry.get("width", 48))
+    height = int(geometry.get("height", 48))
+
+    cell_size = clamp_int(cell_size, 6, 30, 14)
+
+    canvas_width = width * cell_size
+    canvas_height = height * cell_size
+
+    image = Image.new("RGB", (canvas_width, canvas_height), (245, 245, 245))
+    draw = ImageDraw.Draw(image)
+
+    placements = geometry.get("placements", [])
+
+    for placement in placements:
+        x = int(placement.get("x", 0))
+        y = int(placement.get("y", 0))
+
+        px = x * cell_size
+        py = y * cell_size
+
+        color_hex = placement.get("rebrickable_color_rgb")
+        color_rgb = hex_to_rgb(color_hex)
+
+        height_plates = int(placement.get("height_plates", 1))
+
+        # Slightly adjust the color by height so shallow-relief depth is visible.
+        if height_plates >= 5:
+            fill_rgb = lighten_rgb(color_rgb, 15)
+        elif height_plates <= 2:
+            fill_rgb = darken_rgb(color_rgb, 15)
+        else:
+            fill_rgb = color_rgb
+
+        outline_rgb = darken_rgb(fill_rgb, 45)
+        highlight_rgb = lighten_rgb(fill_rgb, 35)
+
+        # Main square tile/plate cell.
+        draw.rectangle(
+            [px, py, px + cell_size - 1, py + cell_size - 1],
+            fill=fill_rgb,
+            outline=outline_rgb
+        )
+
+        # Round stud on top.
+        margin = max(2, cell_size // 4)
+        stud_box = [
+            px + margin,
+            py + margin,
+            px + cell_size - margin,
+            py + cell_size - margin
+        ]
+
+        draw.ellipse(
+            stud_box,
+            fill=lighten_rgb(fill_rgb, 18),
+            outline=outline_rgb
+        )
+
+        # Small highlight dot for a more LEGO-like look.
+        dot_size = max(1, cell_size // 7)
+        draw.ellipse(
+            [
+                px + margin + 1,
+                py + margin + 1,
+                px + margin + 1 + dot_size,
+                py + margin + 1 + dot_size
+            ],
+            fill=highlight_rgb
+        )
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+
 def generate_from_analysis(data):
     analysis = data.get("analysis", {})
 
@@ -1495,6 +1616,8 @@ async def generate_lego_model(data: dict):
                 "include_image_geometry": True,
                 "geometry_width": 48,
                 "geometry_height": 48,
+                "include_preview_image": True,
+                "preview_cell_size": 14,
                 "include_basic_xml_export": True,
                 "include_build_modules": True,
                 "detail_level": 2,
@@ -1531,6 +1654,18 @@ async def generate_lego_model(data: dict):
             response["image_geometry"] = image_geometry
             response["image_geometry_parts_summary"] = summarize_geometry_parts(image_geometry)
             response["image_geometry_estimated_total_parts"] = len(image_geometry.get("placements", []))
+
+            include_preview_image = bool(data.get("include_preview_image", True))
+
+            if include_preview_image:
+                preview_cell_size = data.get("preview_cell_size", 14)
+
+                response["preview_image_base64"] = create_stud_preview_base64(
+                    image_geometry,
+                    cell_size=preview_cell_size
+                )
+                response["preview_image_format"] = "png"
+                response["preview_image_type"] = "2d_stud_preview"
 
         except Exception as e:
             response["generation_mode"] = "analysis_only_geometry_failed"
