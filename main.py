@@ -1,9 +1,16 @@
 from fastapi import FastAPI
+import os
+import requests
 
 app = FastAPI()
 
+REBRICKABLE_BASE_URL = "https://rebrickable.com/api/v3"
 
-BRICKLINK_PARTS = {
+
+# Starter candidate library.
+# These are common LEGO/Rebrickable/BrickLink-compatible part numbers.
+# Rebrickable will validate whether they exist and whether the color exists for the part.
+PARTS = {
     "Plate 1x1": "3024",
     "Plate 1x2": "3023",
     "Plate 2x2": "3022",
@@ -17,33 +24,125 @@ BRICKLINK_PARTS = {
     "Arch 1x4": "3659"
 }
 
-BRICKLINK_COLORS = {
-    "white": "1",
-    "tan": "2",
-    "red": "5",
-    "green": "6",
-    "blue": "7",
-    "black": "11",
-    "dark_green": "80",
-    "dark_bluish_gray": "85",
-    "light_bluish_gray": "86",
-    "reddish_brown": "88",
-    "dark_tan": "69"
+
+# Rebrickable color IDs.
+# Many of these also match common BrickLink color IDs for basic colors,
+# but treat Rebrickable as the validation source.
+COLORS = {
+    "white": 1,
+    "tan": 2,
+    "red": 4,
+    "green": 6,
+    "blue": 7,
+    "black": 0,
+    "dark_green": 80,
+    "dark_bluish_gray": 72,
+    "light_bluish_gray": 71,
+    "reddish_brown": 70,
+    "dark_tan": 19,
+    "yellow": 14,
+    "orange": 25,
+    "brown": 8,
+    "light_gray": 9
 }
 
 
 @app.get("/")
 def root():
-    return {"status": "running", "mode": "analysis_only"}
+    return {
+        "status": "running",
+        "mode": "analysis_only",
+        "catalog_source": "rebrickable",
+        "rebrickable_api_configured": rebrickable_is_configured()
+    }
+
+
+def rebrickable_is_configured():
+    return bool(os.environ.get("REBRICKABLE_API_KEY"))
+
+
+def rebrickable_headers():
+    api_key = os.environ.get("REBRICKABLE_API_KEY")
+
+    if not api_key:
+        raise RuntimeError("Missing REBRICKABLE_API_KEY environment variable.")
+
+    return {
+        "Authorization": f"key {api_key}"
+    }
+
+
+def rebrickable_get(path, params=None):
+    url = f"{REBRICKABLE_BASE_URL}{path}"
+
+    response = requests.get(
+        url,
+        headers=rebrickable_headers(),
+        params=params,
+        timeout=20
+    )
+
+    response.raise_for_status()
+    return response.json()
+
+
+@app.get("/rebrickable/test")
+def test_rebrickable():
+    if not rebrickable_is_configured():
+        return {
+            "ok": False,
+            "error": "Missing REBRICKABLE_API_KEY in Render environment variables."
+        }
+
+    try:
+        data = rebrickable_get("/lego/colors/", params={"page_size": 5})
+
+        return {
+            "ok": True,
+            "message": "Rebrickable API connected successfully.",
+            "sample_color_count": len(data.get("results", [])),
+            "sample_colors": data.get("results", [])
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e)
+        }
+
+
+def get_tier_multiplier(analysis):
+    tier = str(analysis.get("recommended_pricing_tier", "")).lower()
+    model_type = str(analysis.get("recommended_model_type", "")).lower()
+
+    if tier == "premium":
+        return 3
+
+    if tier == "standard":
+        return 2
+
+    return 1
 
 
 def add_part_line(parts, part_name, color, qty):
+    part_num = PARTS.get(part_name)
+    color_id = COLORS.get(color, 71)
+
     parts.append({
         "part_name": part_name,
-        "bricklink_id": BRICKLINK_PARTS.get(part_name),
+        "part_num": part_num,
+        "bricklink_id": part_num,
         "color": color,
-        "bricklink_color_id": BRICKLINK_COLORS.get(color, "86"),
-        "quantity": int(qty)
+        "rebrickable_color_id": color_id,
+        "bricklink_color_id": color_id,
+        "quantity": int(qty),
+        "validation": {
+            "checked": False,
+            "part_exists": None,
+            "color_exists_for_part": None,
+            "official_part_name": None,
+            "notes": []
+        }
     })
 
 
@@ -75,10 +174,71 @@ def create_bricklink_xml(parts):
     return xml
 
 
-def make_response(message, analysis, build_modules, parts):
+def validate_parts_with_rebrickable(parts):
+    if not rebrickable_is_configured():
+        for p in parts:
+            p["validation"]["checked"] = False
+            p["validation"]["notes"].append("Rebrickable API key is not configured.")
+        return parts
+
+    for p in parts:
+        part_num = p.get("part_num")
+        color_id = p.get("rebrickable_color_id")
+
+        if not part_num:
+            p["validation"]["checked"] = True
+            p["validation"]["part_exists"] = False
+            p["validation"]["color_exists_for_part"] = False
+            p["validation"]["notes"].append("Missing part number.")
+            continue
+
+        try:
+            part_data = rebrickable_get(f"/lego/parts/{part_num}/")
+
+            p["validation"]["checked"] = True
+            p["validation"]["part_exists"] = True
+            p["validation"]["official_part_name"] = part_data.get("name")
+
+        except Exception as e:
+            p["validation"]["checked"] = True
+            p["validation"]["part_exists"] = False
+            p["validation"]["color_exists_for_part"] = False
+            p["validation"]["notes"].append(f"Part lookup failed: {str(e)}")
+            continue
+
+        try:
+            color_data = rebrickable_get(f"/lego/parts/{part_num}/colors/{color_id}/")
+
+            p["validation"]["color_exists_for_part"] = True
+            p["validation"]["notes"].append("Part/color combination found in Rebrickable.")
+
+            if color_data.get("part_img_url"):
+                p["part_img_url"] = color_data.get("part_img_url")
+
+            if color_data.get("elements"):
+                p["elements"] = color_data.get("elements")
+
+        except Exception as e:
+            p["validation"]["color_exists_for_part"] = False
+            p["validation"]["notes"].append(
+                f"Part/color combination not found or not common: {str(e)}"
+            )
+
+    return parts
+
+
+def make_response(message, analysis, build_modules, parts, data):
+    validate = bool(data.get("validate_with_rebrickable", True))
+
+    if validate:
+        parts = validate_parts_with_rebrickable(parts)
+
     return {
         "message": message,
         "generation_mode": "analysis_only",
+        "catalog_source": "rebrickable",
+        "rebrickable_api_configured": rebrickable_is_configured(),
+        "rebrickable_validation_enabled": validate,
         "subject": analysis.get("subject"),
         "category": analysis.get("category"),
         "scene_type": analysis.get("scene_type"),
@@ -97,21 +257,22 @@ def make_response(message, analysis, build_modules, parts):
     }
 
 
-def generate_architecture_plan_from_analysis(analysis):
+def generate_architecture_plan_from_analysis(analysis, data):
     parts = []
+    m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "green", 40)
-    add_part_line(parts, "Plate 1x2", "dark_green", 30)
-    add_part_line(parts, "Plate 1x1", "red", 16)
+    add_part_line(parts, "Plate 2x2", "green", 40 * m)
+    add_part_line(parts, "Plate 1x2", "dark_green", 30 * m)
+    add_part_line(parts, "Plate 1x1", "red", 16 * m)
 
-    add_part_line(parts, "Brick Round 2x2", "dark_bluish_gray", 90)
-    add_part_line(parts, "Brick 1x2", "dark_bluish_gray", 180)
-    add_part_line(parts, "Brick 1x4", "dark_bluish_gray", 80)
-    add_part_line(parts, "Plate 1x1", "black", 28)
+    add_part_line(parts, "Brick Round 2x2", "dark_bluish_gray", 90 * m)
+    add_part_line(parts, "Brick 1x2", "dark_bluish_gray", 180 * m)
+    add_part_line(parts, "Brick 1x4", "dark_bluish_gray", 80 * m)
+    add_part_line(parts, "Plate 1x1", "black", 28 * m)
 
-    add_part_line(parts, "Arch 1x4", "tan", 8)
-    add_part_line(parts, "Plate 1x2", "tan", 60)
-    add_part_line(parts, "Tile 1x2", "white", 30)
+    add_part_line(parts, "Arch 1x4", "tan", 8 * m)
+    add_part_line(parts, "Plate 1x2", "tan", 60 * m)
+    add_part_line(parts, "Tile 1x2", "white", 30 * m)
 
     build_modules = [
         {
@@ -140,20 +301,22 @@ def generate_architecture_plan_from_analysis(analysis):
         "Analysis-based architecture brick plan generated",
         analysis,
         build_modules,
-        parts
+        parts,
+        data
     )
 
 
-def generate_mosaic_plan_from_analysis(analysis):
+def generate_mosaic_plan_from_analysis(analysis, data):
     parts = []
+    m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Tile 2x2", "tan", 80)
-    add_part_line(parts, "Tile 1x2", "reddish_brown", 90)
-    add_part_line(parts, "Tile 1x1", "black", 35)
-    add_part_line(parts, "Tile 1x1", "green", 20)
-    add_part_line(parts, "Tile 1x1", "white", 60)
-    add_part_line(parts, "Plate 1x1", "red", 6)
-    add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80)
+    add_part_line(parts, "Tile 2x2", "tan", 80 * m)
+    add_part_line(parts, "Tile 1x2", "reddish_brown", 90 * m)
+    add_part_line(parts, "Tile 1x1", "black", 35 * m)
+    add_part_line(parts, "Tile 1x1", "green", 20 * m)
+    add_part_line(parts, "Tile 1x1", "white", 60 * m)
+    add_part_line(parts, "Plate 1x1", "red", 6 * m)
+    add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m)
 
     build_modules = [
         {
@@ -182,18 +345,20 @@ def generate_mosaic_plan_from_analysis(analysis):
         "Analysis-based mosaic relief brick plan generated",
         analysis,
         build_modules,
-        parts
+        parts,
+        data
     )
 
 
-def generate_vehicle_plan_from_analysis(analysis):
+def generate_vehicle_plan_from_analysis(analysis, data):
     parts = []
+    m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "black", 20)
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80)
-    add_part_line(parts, "Brick 1x4", "light_bluish_gray", 40)
-    add_part_line(parts, "Tile 1x2", "black", 30)
-    add_part_line(parts, "Plate 1x1", "red", 8)
+    add_part_line(parts, "Plate 2x2", "black", 20 * m)
+    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m)
+    add_part_line(parts, "Brick 1x4", "light_bluish_gray", 40 * m)
+    add_part_line(parts, "Tile 1x2", "black", 30 * m)
+    add_part_line(parts, "Plate 1x1", "red", 8 * m)
 
     build_modules = [
         {
@@ -217,17 +382,19 @@ def generate_vehicle_plan_from_analysis(analysis):
         "Analysis-based vehicle brick plan generated",
         analysis,
         build_modules,
-        parts
+        parts,
+        data
     )
 
 
-def generate_generic_plan_from_analysis(analysis):
+def generate_generic_plan_from_analysis(analysis, data):
     parts = []
+    m = get_tier_multiplier(analysis)
 
-    add_part_line(parts, "Plate 2x2", "light_bluish_gray", 40)
-    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80)
-    add_part_line(parts, "Plate 1x2", "dark_bluish_gray", 40)
-    add_part_line(parts, "Tile 1x2", "tan", 30)
+    add_part_line(parts, "Plate 2x2", "light_bluish_gray", 40 * m)
+    add_part_line(parts, "Brick 1x2", "light_bluish_gray", 80 * m)
+    add_part_line(parts, "Plate 1x2", "dark_bluish_gray", 40 * m)
+    add_part_line(parts, "Tile 1x2", "tan", 30 * m)
 
     build_modules = [
         {
@@ -246,7 +413,8 @@ def generate_generic_plan_from_analysis(analysis):
         "Generic analysis-based brick plan generated",
         analysis,
         build_modules,
-        parts
+        parts,
+        data
     )
 
 
@@ -257,18 +425,18 @@ def generate_from_analysis(data):
     category = analysis.get("category", "")
 
     if model_type == "mosaic_relief":
-        return generate_mosaic_plan_from_analysis(analysis)
+        return generate_mosaic_plan_from_analysis(analysis, data)
 
     if model_type in ["architecture_full_model", "architecture_facade"]:
-        return generate_architecture_plan_from_analysis(analysis)
+        return generate_architecture_plan_from_analysis(analysis, data)
 
     if model_type == "vehicle_model":
-        return generate_vehicle_plan_from_analysis(analysis)
+        return generate_vehicle_plan_from_analysis(analysis, data)
 
     if category in ["pet_animal", "person_portrait"]:
-        return generate_mosaic_plan_from_analysis(analysis)
+        return generate_mosaic_plan_from_analysis(analysis, data)
 
-    return generate_generic_plan_from_analysis(analysis)
+    return generate_generic_plan_from_analysis(analysis, data)
 
 
 @app.post("/generate-lego-model")
@@ -283,7 +451,8 @@ async def generate_lego_model(data: dict):
                 "include_bricklink_parts": True,
                 "include_wanted_list_xml": True,
                 "include_build_modules": True,
-                "detail_level": 2
+                "detail_level": 2,
+                "validate_with_rebrickable": True
             }
         }
 
