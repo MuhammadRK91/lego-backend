@@ -2,8 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import re
+import csv
+import gzip
 import requests
 import base64
+from pathlib import Path
 from functools import lru_cache
 from io import BytesIO
 from PIL import Image, ImageFilter, ImageDraw
@@ -24,6 +27,452 @@ app.add_middleware(
 )
 
 REBRICKABLE_BASE_URL = "https://rebrickable.com/api/v3"
+
+
+# Local Rebrickable CSV catalog files uploaded to this repo.
+# Expected files:
+# catalog/parts.csv.gz
+# catalog/colors.csv.gz
+# catalog/part_categories.csv.gz
+# catalog/elements.csv.gz
+CATALOG_DIR = Path(__file__).resolve().parent / "catalog"
+
+
+# ---------------------------------------------------------------------
+# Local catalog loading and realistic candidate part filtering
+# ---------------------------------------------------------------------
+
+def open_catalog_csv(filename):
+    """
+    Opens a catalog CSV from /catalog.
+    Supports both .csv.gz and .csv filenames.
+    """
+    gz_path = CATALOG_DIR / f"{filename}.gz"
+    csv_path = CATALOG_DIR / filename
+
+    if gz_path.exists():
+        return gzip.open(gz_path, "rt", encoding="utf-8", newline="")
+
+    if csv_path.exists():
+        return open(csv_path, "r", encoding="utf-8", newline="")
+
+    return None
+
+
+@lru_cache(maxsize=1)
+def load_local_rebrickable_catalog():
+    """
+    Loads Rebrickable CSV downloads from the local /catalog folder.
+
+    This local catalog is used for fast product-safe filtering.
+    Rebrickable API is still used separately for validation/enrichment when requested.
+    """
+    parts_by_num = {}
+    categories_by_id = {}
+    colors_by_id = {}
+    elements_by_part_color = set()
+
+    # part_categories.csv: id,name
+    handle = open_catalog_csv("part_categories.csv")
+    if handle:
+        with handle:
+            for row in csv.DictReader(handle):
+                cat_id = str(row.get("id", "")).strip()
+                if not cat_id:
+                    continue
+                categories_by_id[cat_id] = {
+                    "id": cat_id,
+                    "name": row.get("name", "")
+                }
+
+    # parts.csv: part_num,name,part_cat_id,part_material
+    handle = open_catalog_csv("parts.csv")
+    if handle:
+        with handle:
+            for row in csv.DictReader(handle):
+                part_num = str(row.get("part_num", "")).strip()
+                if not part_num:
+                    continue
+
+                cat_id = str(row.get("part_cat_id", "")).strip()
+                category = categories_by_id.get(cat_id, {})
+
+                parts_by_num[part_num] = {
+                    "part_num": part_num,
+                    "name": row.get("name", ""),
+                    "part_cat_id": cat_id,
+                    "part_category": category.get("name"),
+                    "part_material": row.get("part_material", "")
+                }
+
+    # colors.csv: id,name,rgb,is_trans
+    handle = open_catalog_csv("colors.csv")
+    if handle:
+        with handle:
+            for row in csv.DictReader(handle):
+                color_id = str(row.get("id", "")).strip()
+                if not color_id:
+                    continue
+                colors_by_id[color_id] = {
+                    "id": color_id,
+                    "name": row.get("name", ""),
+                    "rgb": row.get("rgb", ""),
+                    "is_trans": row.get("is_trans", "")
+                }
+
+    # elements.csv: element_id,part_num,color_id
+    # This tells us that a part/color combination exists as an official LEGO element.
+    handle = open_catalog_csv("elements.csv")
+    if handle:
+        with handle:
+            for row in csv.DictReader(handle):
+                part_num = str(row.get("part_num", "")).strip()
+                color_id = str(row.get("color_id", "")).strip()
+                if part_num and color_id:
+                    elements_by_part_color.add((part_num, color_id))
+
+    return {
+        "catalog_dir": str(CATALOG_DIR),
+        "catalog_available": bool(parts_by_num),
+        "parts_by_num": parts_by_num,
+        "categories_by_id": categories_by_id,
+        "colors_by_id": colors_by_id,
+        "elements_by_part_color": elements_by_part_color,
+        "counts": {
+            "parts": len(parts_by_num),
+            "categories": len(categories_by_id),
+            "colors": len(colors_by_id),
+            "elements_part_color_pairs": len(elements_by_part_color)
+        }
+    }
+
+
+def get_catalog_health():
+    catalog = load_local_rebrickable_catalog()
+    return {
+        "catalog_dir": catalog["catalog_dir"],
+        "catalog_available": catalog["catalog_available"],
+        "counts": catalog["counts"],
+        "expected_files": [
+            "catalog/parts.csv.gz",
+            "catalog/colors.csv.gz",
+            "catalog/part_categories.csv.gz",
+            "catalog/elements.csv.gz"
+        ]
+    }
+
+
+def parse_stud_size_from_name(part_name):
+    """
+    Extracts simple rectangular stud size from Rebrickable-style names.
+    Examples:
+    - Plate 1 x 2 -> w=1, h=2
+    - Tile 2 x 4 with Groove -> w=2, h=4
+    """
+    name = str(part_name or "")
+    match = re.search(r"(\d+)\s*x\s*(\d+)", name, flags=re.IGNORECASE)
+
+    if not match:
+        return None, None
+
+    try:
+        return int(match.group(1)), int(match.group(2))
+    except Exception:
+        return None, None
+
+
+def is_unrealistic_product_part(part_num, part_name, category_name):
+    """
+    Filters out parts that are real LEGO parts but poor choices for an automated product kit.
+    """
+    num = str(part_num or "").lower()
+    name = normalize_text(part_name)
+    category = normalize_text(category_name)
+
+    # Printed/decorated variants often include pr/pb/sticker-specific variants.
+    # For automated kits, prefer plain parts unless manually approved.
+    if "pr" in num or "sticker" in name or "pattern" in name or "printed" in name:
+        return True
+
+    blocked_category_terms = [
+        "minifig", "animal", "duplo", "electric", "energy", "gear",
+        "wheel", "tyre", "tire", "technic", "pneumatic", "string",
+        "sticker", "weapon", "tool", "container", "belville", "bionicle",
+        "hero factory", "znap", "modulex", "baseplate", "large buildable figure"
+    ]
+
+    if any(term in category for term in blocked_category_terms):
+        return True
+
+    blocked_name_terms = [
+        "minifig", "duplo", "sticker", "electric", "wheel", "tyre", "tire",
+        "weapon", "helmet", "head", "torso", "leg", "arm", "cape", "cloth",
+        "string", "rubber band", "hose", "net", "animal", "food", "book", "flag"
+    ]
+
+    if any(term in name for term in blocked_name_terms):
+        return True
+
+    return False
+
+
+def make_candidate_record(part_name, part_num, role, source="strategy_allowed_parts", preferred=True):
+    catalog = load_local_rebrickable_catalog()
+    local_part = catalog["parts_by_num"].get(str(part_num), {})
+
+    official_name = local_part.get("name") or part_name
+    category_name = local_part.get("part_category")
+    w, h = parse_stud_size_from_name(official_name)
+
+    return {
+        "part_name": part_name,
+        "part_num": str(part_num),
+        "official_part_name": official_name,
+        "part_category": category_name,
+        "w": w,
+        "h": h,
+        "role": role,
+        "preferred": preferred,
+        "source": source,
+        "local_catalog_match": bool(local_part),
+        "product_safe": not is_unrealistic_product_part(part_num, official_name, category_name)
+    }
+
+
+def classify_allowed_part_role(part_name, part_num, strategy):
+    name = normalize_text(part_name)
+
+    if "tile round" in name or "plate round" in name or "round" in name:
+        return "detail"
+
+    if "tile" in name:
+        return "surface"
+
+    if "plate" in name:
+        return "structure"
+
+    if "slope" in name or "curved" in name or "arch" in name or "masonry" in name or "headlight" in name:
+        return "shaping"
+
+    if "plant" in name:
+        return "detail"
+
+    if "brick" in name:
+        return "structure"
+
+    return "other"
+
+
+def discover_extra_catalog_candidates(strategy, limit_per_role=25):
+    """
+    Finds extra realistic product-safe parts from the local Rebrickable CSV catalog.
+    This is not a blind all-parts dump. It only includes category/name patterns
+    that are useful for the selected build strategy.
+    """
+    catalog = load_local_rebrickable_catalog()
+    parts_by_num = catalog["parts_by_num"]
+
+    discovered = {
+        "surface": [],
+        "detail": [],
+        "structure": [],
+        "shaping": []
+    }
+
+    strategy = str(strategy or "object_depth_to_voxel")
+
+    for part_num, part in parts_by_num.items():
+        official_name = part.get("name", "")
+        category_name = part.get("part_category", "")
+        norm_name = normalize_text(official_name)
+        norm_cat = normalize_text(category_name)
+
+        if is_unrealistic_product_part(part_num, official_name, category_name):
+            continue
+
+        w, h = parse_stud_size_from_name(official_name)
+
+        # Avoid huge parts for automated image-to-model products.
+        if w and h and (w > 8 or h > 8):
+            continue
+
+        role = None
+
+        if strategy in ["mosaic_or_relief_conversion", "portrait_bust_template", "pet_template_customization"]:
+            if "tiles" in norm_cat and ("tile" in norm_name):
+                role = "surface"
+            elif "plates round" in norm_cat or "round" in norm_name:
+                if "plate" in norm_name or "tile" in norm_name:
+                    role = "detail"
+            elif "plates" in norm_cat and "plate" in norm_name:
+                role = "structure"
+            elif "slope" in norm_name or "curved" in norm_name:
+                role = "shaping"
+
+        elif strategy == "architecture_studio_rebuild":
+            if "brick" in norm_name or "masonry" in norm_name or "arch" in norm_name or "panel" in norm_name:
+                role = "structure"
+            elif "plate" in norm_name:
+                role = "structure"
+            elif "tile" in norm_name:
+                role = "surface"
+            elif "slope" in norm_name or "curved" in norm_name:
+                role = "shaping"
+
+        elif strategy == "vehicle_template_customization":
+            if "plate" in norm_name:
+                role = "structure"
+            elif "tile" in norm_name:
+                role = "surface"
+            elif "slope" in norm_name or "curved" in norm_name:
+                role = "shaping"
+
+        elif strategy == "landscape_diorama_rebuild":
+            if "plate" in norm_name:
+                role = "structure"
+            elif "tile" in norm_name:
+                role = "surface"
+            elif "plant" in norm_name or "flower" in norm_name or "leaf" in norm_name:
+                role = "detail"
+            elif "slope" in norm_name or "curved" in norm_name:
+                role = "shaping"
+
+        else:
+            if "plate" in norm_name or "brick" in norm_name:
+                role = "structure"
+            elif "tile" in norm_name:
+                role = "surface"
+            elif "round" in norm_name:
+                role = "detail"
+            elif "slope" in norm_name or "curved" in norm_name:
+                role = "shaping"
+
+        if not role or role not in discovered:
+            continue
+
+        if len(discovered[role]) >= limit_per_role:
+            continue
+
+        discovered[role].append({
+            "part_name": official_name,
+            "part_num": part_num,
+            "official_part_name": official_name,
+            "part_category": category_name,
+            "w": w,
+            "h": h,
+            "role": role,
+            "preferred": False,
+            "source": "local_rebrickable_csv_discovery",
+            "local_catalog_match": True,
+            "product_safe": True
+        })
+
+    return discovered
+
+
+def build_candidate_parts_catalog(analysis, data=None):
+    """
+    Builds a realistic candidate catalog for Server 2.
+
+    Important:
+    - It does not send all Rebrickable parts.
+    - It starts with strategy-safe parts.
+    - It enriches/checks them against local CSV catalog.
+    - It optionally discovers a small number of additional product-safe candidates.
+    """
+    data = data or {}
+    strategy = get_build_strategy(analysis)
+    allowed_parts = get_allowed_parts_for_analysis(analysis)
+    catalog_health = get_catalog_health()
+
+    surface_parts = []
+    detail_parts = []
+    structure_parts = []
+    shaping_parts = []
+    other_parts = []
+
+    seen = set()
+
+    for part_name, part_num in allowed_parts.items():
+        role = classify_allowed_part_role(part_name, part_num, strategy)
+        record = make_candidate_record(
+            part_name=part_name,
+            part_num=part_num,
+            role=role,
+            source="strategy_allowed_parts",
+            preferred=True
+        )
+
+        seen.add(str(part_num))
+
+        if role == "surface":
+            surface_parts.append(record)
+        elif role == "detail":
+            detail_parts.append(record)
+        elif role == "structure":
+            structure_parts.append(record)
+        elif role == "shaping":
+            shaping_parts.append(record)
+        else:
+            other_parts.append(record)
+
+    include_discovered = bool(data.get("include_catalog_discovery", True))
+
+    if include_discovered and catalog_health["catalog_available"]:
+        discovered = discover_extra_catalog_candidates(strategy)
+
+        for role, records in discovered.items():
+            for record in records:
+                part_num = str(record.get("part_num"))
+                if part_num in seen:
+                    continue
+                seen.add(part_num)
+
+                if role == "surface":
+                    surface_parts.append(record)
+                elif role == "detail":
+                    detail_parts.append(record)
+                elif role == "structure":
+                    structure_parts.append(record)
+                elif role == "shaping":
+                    shaping_parts.append(record)
+
+    all_candidate_parts = surface_parts + detail_parts + structure_parts + shaping_parts + other_parts
+
+    product_safe_parts = [p for p in all_candidate_parts if p.get("product_safe")]
+
+    return {
+        "strategy": strategy,
+        "catalog_source": "strategy_allowed_parts_plus_local_rebrickable_csv",
+        "local_catalog_health": catalog_health,
+        "selection_policy": {
+            "use_all_1000_parts_blindly": False,
+            "filter_by_strategy": True,
+            "product_safe_filtering": True,
+            "preferred_surface_style": data.get("preferred_surface_style", "smooth_tiles"),
+            "allow_printed_parts": False,
+            "allow_minifig_parts": False,
+            "allow_vehicle_only_parts_for_mosaic": False,
+            "notes": [
+                "The full Rebrickable CSV catalog is used for lookup and filtering, not blindly sent to the optimizer.",
+                "Server 2 should optimize using these candidate parts instead of a hardcoded 7-part list."
+            ]
+        },
+        "surface_parts": surface_parts,
+        "detail_parts": detail_parts,
+        "structure_parts": structure_parts,
+        "shaping_parts": shaping_parts,
+        "other_parts": other_parts,
+        "all_candidate_parts": all_candidate_parts,
+        "candidate_part_count": len(all_candidate_parts),
+        "product_safe_candidate_part_count": len(product_safe_parts),
+        "server_2_usage_note": "Send this candidate_parts_catalog with image_geometry to the GLB/model server. Server 2 should use these parts for realistic optimization."
+    }
+
+
+@app.get("/catalog/health")
+def catalog_health():
+    return get_catalog_health()
 
 
 # Strategy-specific allowed parts.
@@ -332,10 +781,11 @@ def root():
     return {
         "status": "running",
         "mode": "analysis_plus_optional_image_geometry",
-        "catalog_source": "rebrickable",
+        "catalog_source": "rebrickable_csv_plus_api_validation",
+        "local_catalog": get_catalog_health(),
         "rebrickable_api_configured": rebrickable_is_configured(),
         "external_catalog_api_used": "rebrickable",
-        "note": "Colors are resolved through Rebrickable API. Parts are selected from strategy-specific controlled libraries and validated with Rebrickable. If original_image_url is sent with include_image_geometry=true, the server creates image-based placement geometry. If include_preview_image=true, the server returns a 2D stud preview as base64 PNG."
+        "note": "Colors are resolved through Rebrickable API. Candidate parts are filtered from local Rebrickable CSV files by build strategy, then validated/enriched with Rebrickable when requested. If original_image_url is sent with include_image_geometry=true, the server creates image-based placement geometry. If include_preview_image=true, the server returns a 2D stud preview as base64 PNG."
     }
 
 
@@ -926,6 +1376,7 @@ def make_response(message, analysis, build_modules, parts, data):
         "external_catalog_api_used": "rebrickable",
         "selected_build_strategy": get_build_strategy(analysis),
         "allowed_parts_used": get_allowed_parts_for_analysis(analysis),
+        "candidate_parts_catalog": build_candidate_parts_catalog(analysis, data),
         "subject": analysis.get("subject"),
         "category": analysis.get("category"),
         "scene_type": analysis.get("scene_type"),
@@ -1775,7 +2226,9 @@ async def generate_lego_model(data: dict):
                 "include_basic_xml_export": True,
                 "include_build_modules": True,
                 "detail_level": 2,
-                "validate_with_rebrickable": True
+                "validate_with_rebrickable": True,
+                "include_catalog_discovery": True,
+                "preferred_surface_style": "smooth_tiles"
             }
         }
 
