@@ -1488,7 +1488,7 @@ def generate_mosaic_plan_from_analysis(analysis, data):
     add_part_line(parts, "Tile Round 1x1", eye_color, 12 * m, analysis, "feature_details", "round eye highlights")
 
     add_part_line(parts, "Tile 1x1", "white", 60 * m, analysis, "feature_details", "white highlights")
-    add_part_line(parts, "Plate Round 1x1 Solid Stud", "red", 6 * m, analysis, "feature_details", "nose or small warm detail")
+    add_part_line(parts, "Plate Round 1x1 Solid Stud", "light_tan", 6 * m, analysis, "feature_details", "nose or small warm detail")
     add_part_line(parts, "Plate 1x2", "light_bluish_gray", 80 * m, analysis, "base_grid", "neutral background/base grid")
 
     build_modules = [
@@ -1533,7 +1533,7 @@ def generate_pet_plan_from_analysis(analysis, data):
     add_part_line(parts, "Tile 1x1", "black", 35 * m, analysis, "feature_details", "pupils and dark markings")
     add_part_line(parts, "Tile Round 1x1", eye_color, 16 * m, analysis, "feature_details", "round eye color details")
     add_part_line(parts, "Tile 1x1", "white", 50 * m, analysis, "feature_details", "paws, muzzle, and highlights")
-    add_part_line(parts, "Plate Round 1x1 Solid Stud", "red", 6 * m, analysis, "feature_details", "nose detail")
+    add_part_line(parts, "Plate Round 1x1 Solid Stud", "light_tan", 6 * m, analysis, "feature_details", "nose detail")
 
     add_part_line(parts, "Brick 1x1", "tan", 25 * m, analysis, "shallow_relief", "small relief build-up")
     add_part_line(parts, "Brick 1x2", "tan", 30 * m, analysis, "shallow_relief", "body/head relief layers")
@@ -1809,7 +1809,10 @@ ARCHITECTURE_LEGO_RGB_PALETTE = {
 
 
 PET_LEGO_RGB_PALETTE = {
-    # Pet-safe palette: no blue colors, so gray/white fur and shadows do not become blue.
+    # Pet-safe palette for realistic fur/portrait mosaics.
+    # Important: red, dark_red, orange, yellow, and pink are intentionally removed.
+    # In pet fur, those colors usually come from warm shadows, compression artifacts,
+    # or the nose, and they create unrealistic red patches in the final mosaic.
     "black": (5, 19, 29),
     "white": (255, 255, 255),
 
@@ -1831,17 +1834,10 @@ PET_LEGO_RGB_PALETTE = {
     "brown": (96, 57, 19),
     "reddish_brown": (88, 42, 18),
 
-    # Eye / small natural detail colors
+    # Eye colors only. These are allowed because cat/dog eyes can be green/hazel.
     "dark_green": (24, 70, 50),
     "green": (40, 127, 70),
-    "lime": (187, 233, 11),
-
-    # Warm small detail colors
-    "dark_red": (123, 46, 47),
-    "red": (196, 40, 28),
-    "orange": (218, 133, 64),
-    "yellow": (245, 205, 47),
-    "pink": (255, 167, 176)
+    "lime": (187, 233, 11)
 }
 
 
@@ -1932,6 +1928,60 @@ def closest_lego_color_name(rgb, palette):
     return best_name
 
 
+def is_pet_like_analysis(analysis):
+    """
+    Returns True for pet/animal inputs where warm artificial colors should be avoided.
+    This is used only for image geometry color mapping, not for all strategies.
+    """
+    category = str(analysis.get("category", "")).lower()
+    strategy = str(analysis.get("build_strategy", "")).lower()
+    subject = str(analysis.get("subject", "")).lower()
+
+    return (
+        category == "pet_animal"
+        or "pet" in category
+        or "animal" in category
+        or "pet" in strategy
+        or "cat" in subject
+        or "kitten" in subject
+        or "dog" in subject
+        or "puppy" in subject
+    )
+
+
+def remap_pet_unwanted_warm_colors(color_name, rgb):
+    """
+    Prevents pet mosaics from using bright red/orange/pink/yellow pixels.
+    These colors usually come from warm fur, nose areas, lighting, compression,
+    or edge artifacts. For pet mosaics they should become natural fur colors.
+    """
+    blocked = {"red", "dark_red", "orange", "pink", "yellow"}
+
+    if color_name not in blocked:
+        return color_name
+
+    r, g, b = rgb
+    brightness = brightness_from_rgb(rgb)
+
+    # Very dark warm pixels should become dark brown.
+    if brightness < 70:
+        return "dark_brown"
+
+    # Warm stripe/shadow pixels should stay in brown family.
+    if r > g and g >= b:
+        if brightness < 115:
+            return "reddish_brown"
+        if brightness < 165:
+            return "brown"
+        return "dark_tan"
+
+    # Light warm highlights or nose-like areas should not become bright red.
+    if brightness >= 185:
+        return "light_tan"
+
+    return "tan"
+
+
 def brightness_from_rgb(rgb):
     r, g, b = rgb
     return (0.299 * r) + (0.587 * g) + (0.114 * b)
@@ -2019,6 +2069,11 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
 
             color_name = closest_lego_color_name(rgb, palette)
 
+            # Pet/animal images should not get unnatural red/orange/pink/yellow patches.
+            # The green/lime eye colors remain available because they are real visible features.
+            if is_pet_like_analysis(analysis):
+                color_name = remap_pet_unwanted_warm_colors(color_name, rgb)
+
             if color_name not in color_cache:
                 color_cache[color_name] = resolve_geometry_color(color_name, palette)
 
@@ -2053,6 +2108,11 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
         "part_name": part_name,
         "part_num": part_num,
         "max_height_plates": 6,
+        "color_policy": {
+            "palette_type": "pet_safe" if is_pet_like_analysis(analysis) else "general",
+            "pet_unwanted_warm_colors_blocked": bool(is_pet_like_analysis(analysis)),
+            "blocked_for_pet_geometry": ["red", "dark_red", "orange", "pink", "yellow"] if is_pet_like_analysis(analysis) else []
+        },
         "placements": placements
     }
 
