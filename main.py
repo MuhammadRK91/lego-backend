@@ -1810,9 +1810,8 @@ ARCHITECTURE_LEGO_RGB_PALETTE = {
 
 PET_LEGO_RGB_PALETTE = {
     # Pet-safe palette for realistic fur/portrait mosaics.
-    # Red/orange/yellow/pink are intentionally removed because they create
-    # unrealistic patches on fur. Green is also removed from the general pet
-    # palette and handled separately only for genuinely green eye pixels.
+    # Red/orange/pink/yellow are intentionally removed to avoid fake warm patches.
+    # Green is also removed from the general fur palette; eye greens are handled separately.
     "black": (5, 19, 29),
     "white": (255, 255, 255),
 
@@ -1824,26 +1823,28 @@ PET_LEGO_RGB_PALETTE = {
     "dark_gray": (109, 110, 108),
     "dark_bluish_gray": (99, 95, 98),
 
-    # Warm fur colors.
-    # These RGB values are slightly warmer/darker than default LEGO-like tan values
-    # so cat fur maps to tan/brown more often instead of white/light gray.
-    "light_tan": (230, 210, 170),
-    "tan": (205, 175, 125),
-    "dark_tan": (150, 125, 90),
+    # Cream / tan fur colors, locally biased warmer for cat/dog fur mapping
+    "light_tan": (232, 214, 176),
+    "tan": (205, 178, 128),
+    "dark_tan": (154, 128, 91),
 
     # Brown fur / stripe colors
-    "dark_brown": (55, 35, 18),
+    "dark_brown": (53, 33, 0),
     "brown": (105, 70, 40),
     "reddish_brown": (95, 50, 25)
 }
 
 
-PET_EYE_COLORS = {
-    # Eye colors are allowed only when the source pixel is genuinely green/hazel.
-    # This prevents dark paw/background shadows from becoming green.
+PET_EYE_RGB_PALETTE = {
+    # Eye-only colors for cats/dogs.
+    # These are not used for the body/background, only for greenish/hazel eye pixels.
+    "sand_green": (120, 144, 129),
+    "olive_green": (128, 128, 48),
     "dark_green": (24, 70, 50),
     "green": (40, 127, 70),
-    "lime": (187, 233, 11)
+    "lime": (187, 233, 11),
+    "black": (5, 19, 29),
+    "white": (255, 255, 255)
 }
 
 
@@ -1936,11 +1937,11 @@ def closest_lego_color_name(rgb, palette):
 
 def is_pet_like_analysis(analysis):
     """
-    Returns True for pet/animal inputs where warm artificial colors should be avoided.
-    This is used only for image geometry color mapping, not for all strategies.
+    Returns True for pet/animal inputs where special fur/eye color handling is needed.
     """
     category = str(analysis.get("category", "")).lower()
     strategy = str(analysis.get("build_strategy", "")).lower()
+    model_type = str(analysis.get("recommended_model_type", "")).lower()
     subject = str(analysis.get("subject", "")).lower()
 
     return (
@@ -1948,6 +1949,7 @@ def is_pet_like_analysis(analysis):
         or "pet" in category
         or "animal" in category
         or "pet" in strategy
+        or model_type == "mosaic_relief"
         or "cat" in subject
         or "kitten" in subject
         or "dog" in subject
@@ -1955,53 +1957,92 @@ def is_pet_like_analysis(analysis):
     )
 
 
-def is_likely_pet_eye_green_pixel(rgb):
+def is_pet_eye_greenish_pixel(rgb):
     """
-    Allows green/lime only for pixels that are genuinely green/hazel and bright enough
-    to plausibly be eye detail. This blocks green from dark paw/background shadows.
-    """
-    r, g, b = rgb
-    brightness = brightness_from_rgb(rgb)
-    saturation = max(rgb) - min(rgb)
-
-    if brightness < 75 or brightness > 235:
-        return False
-
-    if saturation < 12:
-        return False
-
-    # Green/hazel pixels usually have green clearly above red/blue or at least
-    # slightly dominant in a bright eye region.
-    return g >= r + 6 and g >= b + 6
-
-
-def closest_pet_color_name(rgb):
-    """
-    Pet-specific nearest color selection.
-    General fur/body pixels use tan/brown/gray palette only.
-    Green eye colors are considered only for genuinely green source pixels.
-    """
-    if is_likely_pet_eye_green_pixel(rgb):
-        eye_palette = dict(PET_LEGO_RGB_PALETTE)
-        eye_palette.update(PET_EYE_COLORS)
-        return closest_lego_color_name(rgb, eye_palette)
-
-    return closest_lego_color_name(rgb, PET_LEGO_RGB_PALETTE)
-
-
-def correct_pet_color_mapping(color_name, rgb):
-    """
-    Makes pet mosaic colors more natural:
-    - prevents green outside real green eye pixels
-    - reduces excessive white/gray on warm fur
-    - maps warm shadows to brown/tan family
-    - keeps true white only for very bright neutral background/highlights
+    Detects real cat/dog eye-like green/hazel pixels.
+    Cat eyes are often pale gray-green, yellow-green, or olive-green, not pure green.
+    This is intentionally broader than simple green dominance, but still avoids
+    dark body/background shadows becoming green.
     """
     r, g, b = rgb
     brightness = brightness_from_rgb(rgb)
+    max_c = max(r, g, b)
+    min_c = min(r, g, b)
+    saturation = max_c - min_c
 
-    # Final safety: green is allowed only for actual green/hazel eye pixels.
-    if color_name in {"dark_green", "green", "lime"} and not is_likely_pet_eye_green_pixel(rgb):
+    if brightness < 45 or brightness > 215:
+        return False
+
+    # Pure or clear green/gray-green pixels.
+    greenish = (
+        g >= r - 14
+        and g >= b - 6
+        and saturation >= 16
+    )
+
+    # Hazel/olive eye tones: red and green are close, blue is lower.
+    olive_or_hazel = (
+        g >= b + 8
+        and r >= b + 6
+        and abs(r - g) <= 52
+        and saturation >= 18
+        and brightness >= 55
+        and brightness <= 195
+    )
+
+    return bool(greenish or olive_or_hazel)
+
+
+def closest_pet_eye_color_name(rgb):
+    """
+    Maps an eye-like pixel to the nearest eye-only LEGO/Rebrickable color.
+    This protects the iris while keeping green out of fur and shadows.
+    """
+    return closest_lego_color_name(rgb, PET_EYE_RGB_PALETTE)
+
+
+def remap_pet_unwanted_warm_colors(color_name, rgb):
+    """
+    Prevents pet mosaics from using bright red/orange/pink/yellow pixels.
+    These colors usually come from warm fur, nose areas, lighting, compression,
+    or edge artifacts. For pet mosaics they should become natural fur colors.
+    """
+    blocked = {"red", "dark_red", "orange", "pink", "yellow"}
+
+    if color_name not in blocked:
+        return color_name
+
+    r, g, b = rgb
+    brightness = brightness_from_rgb(rgb)
+
+    if brightness < 70:
+        return "dark_brown"
+
+    if r > g and g >= b:
+        if brightness < 115:
+            return "reddish_brown"
+        if brightness < 165:
+            return "brown"
+        return "dark_tan"
+
+    if brightness >= 185:
+        return "light_tan"
+
+    return "tan"
+
+
+def correct_pet_fur_color_mapping(color_name, rgb):
+    """
+    Makes pet fur colors more natural:
+    - keeps green out of fur/body/background
+    - maps warm fur toward tan/brown instead of white/gray
+    - keeps truly bright background/highlights light
+    """
+    r, g, b = rgb
+    brightness = brightness_from_rgb(rgb)
+
+    # Safety: if any green was selected outside eye handling, remap it to fur colors.
+    if color_name in {"sand_green", "olive_green", "dark_green", "green", "lime"}:
         if brightness < 80:
             return "dark_brown"
         if brightness < 125:
@@ -2010,55 +2051,47 @@ def correct_pet_color_mapping(color_name, rgb):
             return "dark_tan"
         return "tan"
 
-    # Block bright artificial warm colors if they ever appear in future palettes.
-    if color_name in {"red", "dark_red", "orange", "pink", "yellow"}:
-        if brightness < 70:
-            return "dark_brown"
-        if brightness < 115:
-            return "reddish_brown"
-        if brightness < 165:
-            return "brown"
-        if brightness < 205:
-            return "dark_tan"
-        return "light_tan"
+    color_name = remap_pet_unwanted_warm_colors(color_name, rgb)
 
-    # Detect natural warm fur pixels: tan/brown/cream usually has red >= green >= blue
-    # or at least red noticeably stronger than blue.
-    warm_pixel = (r >= g - 6 and g >= b - 8 and (r - b) > 12)
+    # Warm fur: red >= green >= blue or red clearly above blue.
+    warm_pixel = (r >= g - 8 and g >= b - 8 and (r - b) > 16)
 
     if warm_pixel:
-        if brightness >= 225:
+        if brightness > 232:
             return "light_tan"
-        if brightness >= 180:
+        if brightness > 188:
             return "tan"
-        if brightness >= 130:
+        if brightness > 138:
             return "dark_tan"
-        if brightness >= 80:
+        if brightness > 82:
             return "brown"
         return "dark_brown"
 
-    # Off-white but slightly warm pixels should not become pure white.
-    slightly_warm = (r - b) > 8 and r >= g - 10
-    if color_name == "white" and brightness < 242 and slightly_warm:
+    # Avoid over-whitening the cat body. Very bright pixels can stay white, but
+    # mid-bright fur should be light tan instead of white/light gray.
+    if color_name == "white" and brightness < 235:
         return "light_tan"
 
-    # Gray selected from a warm-ish fur pixel should be shifted back to fur colors.
-    if color_name in {"very_light_gray", "light_gray", "light_bluish_gray", "medium_gray"} and slightly_warm:
-        if brightness >= 205:
-            return "light_tan"
-        if brightness >= 165:
+    if color_name in {"very_light_gray", "light_gray", "light_bluish_gray"}:
+        # Slightly warm or beige pixels should become tan family.
+        if r >= b + 10 and g >= b + 4 and brightness < 225:
+            if brightness > 185:
+                return "light_tan"
             return "tan"
-        if brightness >= 115:
-            return "dark_tan"
-        return "brown"
 
     return color_name
 
 
-# Backward-compatible name used by older code paths.
-def remap_pet_unwanted_warm_colors(color_name, rgb):
-    return correct_pet_color_mapping(color_name, rgb)
-
+def get_geometry_palette_for_resolution(base_palette, analysis):
+    """
+    Returns palette used for resolving preview RGB. For pet geometry, include
+    eye-only colors so sand_green/olive_green/green can resolve correctly.
+    """
+    if is_pet_like_analysis(analysis):
+        merged = dict(base_palette)
+        merged.update(PET_EYE_RGB_PALETTE)
+        return merged
+    return base_palette
 
 def brightness_from_rgb(rgb):
     r, g, b = rgb
@@ -2145,15 +2178,20 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
             rgb = image.getpixel((x, y))
             edge_value = edge_image.getpixel((x, y))
 
+            color_name = closest_lego_color_name(rgb, palette)
+
+            # Pet/animal images need special handling:
+            # - green/olive/sand-green only for genuine eye-like pixels
+            # - warm fur should stay tan/brown, not white/gray/green/red
             if is_pet_like_analysis(analysis):
-                # Pet-specific mapping: warmer tan/brown fur, green only for true eye pixels.
-                color_name = closest_pet_color_name(rgb)
-                color_name = correct_pet_color_mapping(color_name, rgb)
-            else:
-                color_name = closest_lego_color_name(rgb, palette)
+                if is_pet_eye_greenish_pixel(rgb):
+                    color_name = closest_pet_eye_color_name(rgb)
+                else:
+                    color_name = correct_pet_fur_color_mapping(color_name, rgb)
 
             if color_name not in color_cache:
-                color_cache[color_name] = resolve_geometry_color(color_name, palette)
+                resolution_palette = get_geometry_palette_for_resolution(palette, analysis)
+                color_cache[color_name] = resolve_geometry_color(color_name, resolution_palette)
 
             color_data = color_cache[color_name]
             height_plates = height_plates_from_rgb(rgb, edge_value=edge_value)
@@ -2187,12 +2225,12 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
         "part_num": part_num,
         "max_height_plates": 6,
         "color_policy": {
-            "palette_type": "pet_safe_warm_fur" if is_pet_like_analysis(analysis) else "general",
+            "palette_type": "pet_safe_warm_fur_eye_protected" if is_pet_like_analysis(analysis) else "general",
             "pet_unwanted_warm_colors_blocked": bool(is_pet_like_analysis(analysis)),
-            "pet_green_limited_to_eye_pixels": bool(is_pet_like_analysis(analysis)),
             "pet_warm_fur_bias_enabled": bool(is_pet_like_analysis(analysis)),
-            "blocked_for_pet_geometry": ["red", "dark_red", "orange", "pink", "yellow"] if is_pet_like_analysis(analysis) else [],
-            "green_policy": "green/lime allowed only for genuinely green eye-like pixels" if is_pet_like_analysis(analysis) else "general palette"
+            "pet_green_limited_to_eye_pixels": bool(is_pet_like_analysis(analysis)),
+            "eye_color_palette": list(PET_EYE_RGB_PALETTE.keys()) if is_pet_like_analysis(analysis) else [],
+            "blocked_for_pet_geometry": ["red", "dark_red", "orange", "pink", "yellow"] if is_pet_like_analysis(analysis) else []
         },
         "placements": placements
     }
