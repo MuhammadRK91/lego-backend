@@ -376,9 +376,9 @@ def build_candidate_parts_catalog(analysis, data=None):
 
     Important:
     - It does not send all Rebrickable parts.
-    - It starts with strategy-safe parts.
-    - It enriches/checks them against local CSV catalog.
-    - It optionally discovers a small number of additional product-safe candidates.
+    - It uses strategy-safe parts as the optimizer-ready catalog.
+    - It checks/enriches those parts against the local Rebrickable CSV catalog.
+    - Extra discovered CSV parts are kept only as reference unless explicitly requested.
     """
     data = data or {}
     strategy = get_build_strategy(analysis)
@@ -391,6 +391,7 @@ def build_candidate_parts_catalog(analysis, data=None):
     shaping_parts = []
     other_parts = []
 
+    optimizer_ready_parts = []
     seen = set()
 
     for part_name, part_num in allowed_parts.items():
@@ -401,6 +402,15 @@ def build_candidate_parts_catalog(analysis, data=None):
             role=role,
             source="strategy_allowed_parts",
             preferred=True
+        )
+
+        # Only strategy-allowed, locally matched, product-safe records are optimizer-ready.
+        record["optimizer_ready"] = bool(
+            record.get("preferred")
+            and record.get("local_catalog_match")
+            and record.get("product_safe")
+            and record.get("w") is not None
+            and record.get("h") is not None
         )
 
         seen.add(str(part_num))
@@ -416,7 +426,13 @@ def build_candidate_parts_catalog(analysis, data=None):
         else:
             other_parts.append(record)
 
-    include_discovered = bool(data.get("include_catalog_discovery", True))
+        if record["optimizer_ready"]:
+            optimizer_ready_parts.append(record)
+
+    # Discovery is disabled by default for production safety.
+    # Extra discovered parts can be returned for reference/debugging only, but Server 2 should not use them.
+    include_discovered = bool(data.get("include_catalog_discovery", False))
+    discovered_reference_parts = []
 
     if include_discovered and catalog_health["catalog_available"]:
         discovered = discover_extra_catalog_candidates(strategy)
@@ -428,45 +444,48 @@ def build_candidate_parts_catalog(analysis, data=None):
                     continue
                 seen.add(part_num)
 
-                if role == "surface":
-                    surface_parts.append(record)
-                elif role == "detail":
-                    detail_parts.append(record)
-                elif role == "structure":
-                    structure_parts.append(record)
-                elif role == "shaping":
-                    shaping_parts.append(record)
+                record["optimizer_ready"] = False
+                record["server_2_use"] = "reference_only_not_for_optimizer"
+                discovered_reference_parts.append(record)
 
-    all_candidate_parts = surface_parts + detail_parts + structure_parts + shaping_parts + other_parts
-
-    product_safe_parts = [p for p in all_candidate_parts if p.get("product_safe")]
+    # These grouped lists intentionally contain only optimizer-ready strategy parts.
+    safe_surface_parts = [p for p in surface_parts if p.get("optimizer_ready")]
+    safe_detail_parts = [p for p in detail_parts if p.get("optimizer_ready")]
+    safe_structure_parts = [p for p in structure_parts if p.get("optimizer_ready")]
+    safe_shaping_parts = [p for p in shaping_parts if p.get("optimizer_ready")]
+    safe_other_parts = [p for p in other_parts if p.get("optimizer_ready")]
 
     return {
         "strategy": strategy,
-        "catalog_source": "strategy_allowed_parts_plus_local_rebrickable_csv",
+        "catalog_source": "strategy_allowed_parts_plus_local_rebrickable_csv_validation",
         "local_catalog_health": catalog_health,
         "selection_policy": {
-            "use_all_1000_parts_blindly": False,
+            "use_all_rebrickable_parts_blindly": False,
             "filter_by_strategy": True,
             "product_safe_filtering": True,
+            "optimizer_uses_strategy_allowed_parts_only": True,
+            "local_csv_discovery_enabled": include_discovered,
+            "local_csv_discovery_usage": "reference_only_not_optimizer_ready",
             "preferred_surface_style": data.get("preferred_surface_style", "smooth_tiles"),
             "allow_printed_parts": False,
             "allow_minifig_parts": False,
             "allow_vehicle_only_parts_for_mosaic": False,
             "notes": [
-                "The full Rebrickable CSV catalog is used for lookup and filtering, not blindly sent to the optimizer.",
-                "Server 2 should optimize using these candidate parts instead of a hardcoded 7-part list."
+                "The full Rebrickable CSV catalog is used for lookup and validation, not blindly sent to the optimizer.",
+                "Server 2 should use optimizer_ready_parts only.",
+                "Discovered CSV parts are reference-only unless manually approved later."
             ]
         },
-        "surface_parts": surface_parts,
-        "detail_parts": detail_parts,
-        "structure_parts": structure_parts,
-        "shaping_parts": shaping_parts,
-        "other_parts": other_parts,
-        "all_candidate_parts": all_candidate_parts,
-        "candidate_part_count": len(all_candidate_parts),
-        "product_safe_candidate_part_count": len(product_safe_parts),
-        "server_2_usage_note": "Send this candidate_parts_catalog with image_geometry to the GLB/model server. Server 2 should use these parts for realistic optimization."
+        "surface_parts": safe_surface_parts,
+        "detail_parts": safe_detail_parts,
+        "structure_parts": safe_structure_parts,
+        "shaping_parts": safe_shaping_parts,
+        "other_parts": safe_other_parts,
+        "optimizer_ready_parts": optimizer_ready_parts,
+        "optimizer_ready_part_count": len(optimizer_ready_parts),
+        "discovered_reference_parts": discovered_reference_parts,
+        "discovered_reference_part_count": len(discovered_reference_parts),
+        "server_2_usage_note": "Send candidate_parts_catalog.optimizer_ready_parts with image_geometry to the GLB/model server. Server 2 should ignore discovered_reference_parts unless manually approved."
     }
 
 
