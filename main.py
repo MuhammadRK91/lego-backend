@@ -1761,12 +1761,14 @@ def generate_generic_plan_from_analysis(analysis, data):
 # Image-to-placement geometry helpers
 # ---------------------------------------------------------------------
 
-ARCHITECTURE_LEGO_RGB_PALETTE = {
-    # Core neutrals
+# Universal and category-specific LEGO/Rebrickable color palettes.
+# The goal is always visual fidelity to the uploaded image, with small safety
+# corrections only when a category is known to produce bad color artifacts.
+
+UNIVERSAL_LEGO_RGB_PALETTE = {
+    # Neutrals
     "black": (5, 19, 29),
     "white": (255, 255, 255),
-
-    # Stone / castle grays
     "very_light_gray": (229, 228, 222),
     "light_gray": (155, 161, 157),
     "light_bluish_gray": (160, 165, 169),
@@ -1774,61 +1776,145 @@ ARCHITECTURE_LEGO_RGB_PALETTE = {
     "dark_gray": (109, 110, 108),
     "dark_bluish_gray": (99, 95, 98),
 
-    # Sand / tan / masonry colors
+    # Tan / brown / natural warm tones
     "light_tan": (238, 229, 195),
     "tan": (215, 197, 153),
     "dark_tan": (149, 138, 115),
-    "sand_yellow": (215, 197, 153),
     "nougat": (204, 142, 104),
     "medium_nougat": (170, 125, 85),
-
-    # Browns / shadows
     "dark_brown": (53, 33, 0),
     "brown": (96, 57, 19),
     "reddish_brown": (88, 42, 18),
 
-    # Greens / landscape
+    # Greens
     "sand_green": (120, 144, 129),
+    "olive_green": (128, 128, 48),
     "dark_green": (24, 70, 50),
     "green": (40, 127, 70),
     "lime": (187, 233, 11),
 
-    # Blues / sky
+    # Blues
     "sand_blue": (96, 116, 161),
     "light_blue": (180, 210, 227),
     "medium_blue": (90, 147, 219),
     "blue": (13, 105, 171),
+    "dark_blue": (25, 50, 120),
 
-    # Warm accent colors
+    # Strong / accent colors
     "dark_red": (123, 46, 47),
     "red": (196, 40, 28),
+    "dark_orange": (160, 95, 40),
     "orange": (218, 133, 64),
     "yellow": (245, 205, 47),
     "pink": (255, 167, 176)
 }
 
 
-PET_LEGO_RGB_PALETTE = {
-    # Pet-safe palette for realistic fur/portrait mosaics.
-    # Red/orange/pink/yellow are intentionally removed to avoid fake warm patches.
-    # Green is also removed from the general fur palette; eye greens are handled separately.
+ARCHITECTURE_LEGO_RGB_PALETTE = {
+    # Architecture keeps stone, tan, brick, glass/sky and landscape colors.
     "black": (5, 19, 29),
     "white": (255, 255, 255),
-
-    # Neutral fur / background / shadow colors
     "very_light_gray": (229, 228, 222),
     "light_gray": (155, 161, 157),
     "light_bluish_gray": (160, 165, 169),
     "medium_gray": (128, 128, 128),
     "dark_gray": (109, 110, 108),
     "dark_bluish_gray": (99, 95, 98),
+    "light_tan": (238, 229, 195),
+    "tan": (215, 197, 153),
+    "dark_tan": (149, 138, 115),
+    "nougat": (204, 142, 104),
+    "medium_nougat": (170, 125, 85),
+    "dark_brown": (53, 33, 0),
+    "brown": (96, 57, 19),
+    "reddish_brown": (88, 42, 18),
+    "sand_green": (120, 144, 129),
+    "dark_green": (24, 70, 50),
+    "green": (40, 127, 70),
+    "sand_blue": (96, 116, 161),
+    "light_blue": (180, 210, 227),
+    "medium_blue": (90, 147, 219),
+    "blue": (13, 105, 171),
+    "dark_red": (123, 46, 47),
+    "red": (196, 40, 28),
+    "orange": (218, 133, 64),
+    "yellow": (245, 205, 47)
+}
 
-    # Cream / tan fur colors, locally biased warmer for cat/dog fur mapping
+
+VEHICLE_LEGO_RGB_PALETTE = {
+    # Vehicles need strong body colors, windows, tires, lights and metallic/neutral shades.
+    "black": (5, 19, 29),
+    "white": (255, 255, 255),
+    "very_light_gray": (229, 228, 222),
+    "light_gray": (155, 161, 157),
+    "light_bluish_gray": (160, 165, 169),
+    "medium_gray": (128, 128, 128),
+    "dark_gray": (109, 110, 108),
+    "dark_bluish_gray": (99, 95, 98),
+    "black": (5, 19, 29),
+    "red": (196, 40, 28),
+    "dark_red": (123, 46, 47),
+    "orange": (218, 133, 64),
+    "yellow": (245, 205, 47),
+    "blue": (13, 105, 171),
+    "dark_blue": (25, 50, 120),
+    "medium_blue": (90, 147, 219),
+    "green": (40, 127, 70),
+    "dark_green": (24, 70, 50),
+    "lime": (187, 233, 11),
+    "tan": (215, 197, 153),
+    "dark_tan": (149, 138, 115),
+    "brown": (96, 57, 19)
+}
+
+
+LANDSCAPE_LEGO_RGB_PALETTE = {
+    # Landscapes need natural greens/blues/browns plus stone and snow/cloud neutrals.
+    "black": (5, 19, 29),
+    "white": (255, 255, 255),
+    "very_light_gray": (229, 228, 222),
+    "light_gray": (155, 161, 157),
+    "light_bluish_gray": (160, 165, 169),
+    "medium_gray": (128, 128, 128),
+    "dark_gray": (109, 110, 108),
+    "dark_bluish_gray": (99, 95, 98),
+    "light_tan": (238, 229, 195),
+    "tan": (215, 197, 153),
+    "dark_tan": (149, 138, 115),
+    "dark_brown": (53, 33, 0),
+    "brown": (96, 57, 19),
+    "reddish_brown": (88, 42, 18),
+    "sand_green": (120, 144, 129),
+    "olive_green": (128, 128, 48),
+    "dark_green": (24, 70, 50),
+    "green": (40, 127, 70),
+    "lime": (187, 233, 11),
+    "sand_blue": (96, 116, 161),
+    "light_blue": (180, 210, 227),
+    "medium_blue": (90, 147, 219),
+    "blue": (13, 105, 171),
+    "orange": (218, 133, 64),
+    "yellow": (245, 205, 47),
+    "red": (196, 40, 28),
+    "pink": (255, 167, 176)
+}
+
+
+PET_LEGO_RGB_PALETTE = {
+    # Pet body/fur palette. Strong red/orange/pink/yellow and green are not used
+    # for general fur/background. Eye greens are handled separately below.
+    "black": (5, 19, 29),
+    "white": (255, 255, 255),
+    "very_light_gray": (229, 228, 222),
+    "light_gray": (155, 161, 157),
+    "light_bluish_gray": (160, 165, 169),
+    "medium_gray": (128, 128, 128),
+    "dark_gray": (109, 110, 108),
+    "dark_bluish_gray": (99, 95, 98),
     "light_tan": (232, 214, 176),
     "tan": (205, 178, 128),
     "dark_tan": (154, 128, 91),
-
-    # Brown fur / stripe colors
     "dark_brown": (53, 33, 0),
     "brown": (105, 70, 40),
     "reddish_brown": (95, 50, 25)
@@ -1836,38 +1922,19 @@ PET_LEGO_RGB_PALETTE = {
 
 
 PET_EYE_RGB_PALETTE = {
-    # Eye-only colors for cats/dogs.
-    # These are not used for the body/background, only for greenish/hazel eye pixels.
+    # Eye-only colors for cats/dogs and animal portraits.
     "sand_green": (120, 144, 129),
     "olive_green": (128, 128, 48),
     "dark_green": (24, 70, 50),
     "green": (40, 127, 70),
     "lime": (187, 233, 11),
+    "sand_blue": (96, 116, 161),
+    "medium_blue": (90, 147, 219),
+    "yellow": (245, 205, 47),
     "black": (5, 19, 29),
     "white": (255, 255, 255)
 }
 
-
-def get_palette_for_analysis(analysis):
-    """
-    Uses different color palettes by subject type.
-    This prevents pet images from picking sky-blue colors while still allowing
-    architecture/castle images to use stone, sand, and sky colors.
-    """
-    category = str(analysis.get("category", "")).lower()
-    model_type = str(analysis.get("recommended_model_type", "")).lower()
-    strategy = str(analysis.get("build_strategy", "")).lower()
-
-    if (
-        category == "pet_animal"
-        or "pet" in category
-        or "animal" in category
-        or "pet" in strategy
-        or "portrait" in model_type
-    ):
-        return PET_LEGO_RGB_PALETTE
-
-    return ARCHITECTURE_LEGO_RGB_PALETTE
 
 def rgb_tuple_to_hex(rgb):
     if not rgb:
@@ -1875,7 +1942,6 @@ def rgb_tuple_to_hex(rgb):
 
     r, g, b = rgb
     return f"{int(r):02X}{int(g):02X}{int(b):02X}"
-
 
 
 def clamp_int(value, minimum, maximum, default):
@@ -1913,6 +1979,16 @@ def resize_image_keep_aspect(image, width, height):
     return canvas
 
 
+def brightness_from_rgb(rgb):
+    r, g, b = rgb
+    return (0.299 * r) + (0.587 * g) + (0.114 * b)
+
+
+def color_saturation(rgb):
+    r, g, b = rgb
+    return max(r, g, b) - min(r, g, b)
+
+
 def closest_lego_color_name(rgb, palette):
     r, g, b = rgb
 
@@ -1936,9 +2012,6 @@ def closest_lego_color_name(rgb, palette):
 
 
 def is_pet_like_analysis(analysis):
-    """
-    Returns True for pet/animal inputs where special fur/eye color handling is needed.
-    """
     category = str(analysis.get("category", "")).lower()
     strategy = str(analysis.get("build_strategy", "")).lower()
     model_type = str(analysis.get("recommended_model_type", "")).lower()
@@ -1949,153 +2022,349 @@ def is_pet_like_analysis(analysis):
         or "pet" in category
         or "animal" in category
         or "pet" in strategy
-        or model_type == "mosaic_relief"
         or "cat" in subject
         or "kitten" in subject
         or "dog" in subject
         or "puppy" in subject
+        or "rabbit" in subject
+        or "bird" in subject
+        or "animal" in subject
     )
 
 
-def is_pet_eye_greenish_pixel(rgb):
+def is_vehicle_like_analysis(analysis):
+    category = str(analysis.get("category", "")).lower()
+    strategy = str(analysis.get("build_strategy", "")).lower()
+    model_type = str(analysis.get("recommended_model_type", "")).lower()
+    subject = str(analysis.get("subject", "")).lower()
+
+    return (
+        category == "vehicle"
+        or "vehicle" in strategy
+        or model_type == "vehicle_model"
+        or any(word in subject for word in ["car", "truck", "bus", "motorcycle", "bike", "airplane", "train", "boat"])
+    )
+
+
+def is_architecture_like_analysis(analysis):
+    category = str(analysis.get("category", "")).lower()
+    strategy = str(analysis.get("build_strategy", "")).lower()
+    model_type = str(analysis.get("recommended_model_type", "")).lower()
+
+    return (
+        category == "architecture_landmark"
+        or "architecture" in strategy
+        or model_type in {"architecture_facade", "architecture_full_model"}
+    )
+
+
+def is_landscape_like_analysis(analysis):
+    category = str(analysis.get("category", "")).lower()
+    strategy = str(analysis.get("build_strategy", "")).lower()
+    model_type = str(analysis.get("recommended_model_type", "")).lower()
+
+    return (
+        category == "landscape_scene"
+        or "landscape" in strategy
+        or model_type == "landscape_diorama"
+    )
+
+
+def get_color_policy_name(analysis):
+    if is_pet_like_analysis(analysis):
+        return "pet_warm_fur_eye_protected"
+    if is_vehicle_like_analysis(analysis):
+        return "vehicle_body_color_preservation"
+    if is_architecture_like_analysis(analysis):
+        return "architecture_neutral_stone_preservation"
+    if is_landscape_like_analysis(analysis):
+        return "landscape_green_blue_preservation"
+    return "universal_closest_lego_color"
+
+
+def get_palette_for_analysis(analysis):
     """
-    Detects real cat/dog eye-like green/hazel pixels.
-    Cat eyes are often pale gray-green, yellow-green, or olive-green, not pure green.
-    This is intentionally broader than simple green dominance, but still avoids
-    dark body/background shadows becoming green.
+    Category-specific palette selection.
+    The original image pixel remains the source of truth. Category palettes only
+    prevent obviously wrong colors for that subject type.
+    """
+    if is_pet_like_analysis(analysis):
+        return PET_LEGO_RGB_PALETTE
+    if is_vehicle_like_analysis(analysis):
+        return VEHICLE_LEGO_RGB_PALETTE
+    if is_architecture_like_analysis(analysis):
+        return ARCHITECTURE_LEGO_RGB_PALETTE
+    if is_landscape_like_analysis(analysis):
+        return LANDSCAPE_LEGO_RGB_PALETTE
+    return UNIVERSAL_LEGO_RGB_PALETTE
+
+
+def neutral_color_from_brightness(rgb):
+    brightness = brightness_from_rgb(rgb)
+    if brightness < 45:
+        return "black"
+    if brightness < 90:
+        return "dark_bluish_gray"
+    if brightness < 130:
+        return "dark_gray"
+    if brightness < 170:
+        return "medium_gray"
+    if brightness < 215:
+        return "light_bluish_gray"
+    if brightness < 238:
+        return "very_light_gray"
+    return "white"
+
+
+def warm_natural_color_from_rgb(rgb):
+    r, g, b = rgb
+    brightness = brightness_from_rgb(rgb)
+
+    if brightness < 65:
+        return "dark_brown"
+    if brightness < 105:
+        return "brown"
+    if brightness < 145:
+        return "reddish_brown" if r > g + 12 else "dark_tan"
+    if brightness < 185:
+        return "dark_tan"
+    if brightness < 225:
+        return "tan"
+    return "light_tan"
+
+
+def has_real_color_support(rgb, color_name):
+    """
+    Checks whether the selected saturated color is actually supported by the source pixel.
+    This prevents gray shadows from becoming random red/green/blue/yellow.
+    """
+    r, g, b = rgb
+    sat = color_saturation(rgb)
+    brightness = brightness_from_rgb(rgb)
+
+    if color_name in {"black", "white", "very_light_gray", "light_gray", "light_bluish_gray", "medium_gray", "dark_gray", "dark_bluish_gray"}:
+        return True
+
+    if color_name in {"red", "dark_red", "pink"}:
+        return sat >= 28 and r >= g + 18 and r >= b + 18
+
+    if color_name in {"orange", "dark_orange", "yellow"}:
+        return sat >= 25 and r >= b + 30 and g >= b + 12 and brightness > 70
+
+    if color_name in {"green", "dark_green", "lime", "sand_green", "olive_green"}:
+        return sat >= 22 and g >= b + 8 and g >= r - 12
+
+    if color_name in {"blue", "dark_blue", "medium_blue", "light_blue", "sand_blue"}:
+        return sat >= 22 and b >= r + 10 and b >= g - 8
+
+    if color_name in {"tan", "light_tan", "dark_tan", "brown", "dark_brown", "reddish_brown", "nougat", "medium_nougat"}:
+        return True
+
+    return True
+
+
+def is_pet_eye_colored_pixel(rgb):
+    """
+    Detects real animal eye colors: pale green, gray-green, yellow-green,
+    olive/hazel, blue eyes, dark pupil, and small white highlight.
     """
     r, g, b = rgb
     brightness = brightness_from_rgb(rgb)
-    max_c = max(r, g, b)
-    min_c = min(r, g, b)
-    saturation = max_c - min_c
+    sat = color_saturation(rgb)
 
-    if brightness < 45 or brightness > 215:
+    if brightness < 25 or brightness > 245:
         return False
 
-    # Pure or clear green/gray-green pixels.
     greenish = (
-        g >= r - 14
-        and g >= b - 6
-        and saturation >= 16
+        g >= r - 16
+        and g >= b - 8
+        and sat >= 14
+        and 45 <= brightness <= 220
     )
 
-    # Hazel/olive eye tones: red and green are close, blue is lower.
     olive_or_hazel = (
-        g >= b + 8
-        and r >= b + 6
-        and abs(r - g) <= 52
-        and saturation >= 18
-        and brightness >= 55
-        and brightness <= 195
+        g >= b + 6
+        and r >= b + 4
+        and abs(r - g) <= 58
+        and sat >= 16
+        and 50 <= brightness <= 205
     )
 
-    return bool(greenish or olive_or_hazel)
+    bluish_eye = (
+        b >= r + 8
+        and b >= g - 5
+        and sat >= 18
+        and 55 <= brightness <= 220
+    )
+
+    return bool(greenish or olive_or_hazel or bluish_eye)
 
 
 def closest_pet_eye_color_name(rgb):
-    """
-    Maps an eye-like pixel to the nearest eye-only LEGO/Rebrickable color.
-    This protects the iris while keeping green out of fur and shadows.
-    """
     return closest_lego_color_name(rgb, PET_EYE_RGB_PALETTE)
 
 
-def remap_pet_unwanted_warm_colors(color_name, rgb):
+def correct_pet_color(color_name, rgb):
     """
-    Prevents pet mosaics from using bright red/orange/pink/yellow pixels.
-    These colors usually come from warm fur, nose areas, lighting, compression,
-    or edge artifacts. For pet mosaics they should become natural fur colors.
-    """
-    blocked = {"red", "dark_red", "orange", "pink", "yellow"}
-
-    if color_name not in blocked:
-        return color_name
-
-    r, g, b = rgb
-    brightness = brightness_from_rgb(rgb)
-
-    if brightness < 70:
-        return "dark_brown"
-
-    if r > g and g >= b:
-        if brightness < 115:
-            return "reddish_brown"
-        if brightness < 165:
-            return "brown"
-        return "dark_tan"
-
-    if brightness >= 185:
-        return "light_tan"
-
-    return "tan"
-
-
-def correct_pet_fur_color_mapping(color_name, rgb):
-    """
-    Makes pet fur colors more natural:
-    - keeps green out of fur/body/background
-    - maps warm fur toward tan/brown instead of white/gray
-    - keeps truly bright background/highlights light
+    Pet/animal rule: preserve natural fur and eyes.
+    - green/blue/yellow eye colors are allowed only for eye-like pixels
+    - warm fur maps to tan/brown families
+    - mid-bright fur does not become too white/gray
     """
     r, g, b = rgb
     brightness = brightness_from_rgb(rgb)
 
-    # Safety: if any green was selected outside eye handling, remap it to fur colors.
-    if color_name in {"sand_green", "olive_green", "dark_green", "green", "lime"}:
-        if brightness < 80:
-            return "dark_brown"
-        if brightness < 125:
-            return "brown"
-        if brightness < 170:
-            return "dark_tan"
-        return "tan"
+    if is_pet_eye_colored_pixel(rgb):
+        return closest_pet_eye_color_name(rgb)
 
-    color_name = remap_pet_unwanted_warm_colors(color_name, rgb)
+    if color_name in {"sand_green", "olive_green", "dark_green", "green", "lime", "sand_blue", "medium_blue", "blue", "yellow"}:
+        return warm_natural_color_from_rgb(rgb)
 
-    # Warm fur: red >= green >= blue or red clearly above blue.
+    if color_name in {"red", "dark_red", "orange", "dark_orange", "pink"}:
+        return warm_natural_color_from_rgb(rgb)
+
     warm_pixel = (r >= g - 8 and g >= b - 8 and (r - b) > 16)
-
     if warm_pixel:
-        if brightness > 232:
-            return "light_tan"
-        if brightness > 188:
-            return "tan"
-        if brightness > 138:
-            return "dark_tan"
-        if brightness > 82:
-            return "brown"
-        return "dark_brown"
+        return warm_natural_color_from_rgb(rgb)
 
-    # Avoid over-whitening the cat body. Very bright pixels can stay white, but
-    # mid-bright fur should be light tan instead of white/light gray.
     if color_name == "white" and brightness < 235:
-        return "light_tan"
+        return "light_tan" if r >= b + 8 else "very_light_gray"
 
     if color_name in {"very_light_gray", "light_gray", "light_bluish_gray"}:
-        # Slightly warm or beige pixels should become tan family.
         if r >= b + 10 and g >= b + 4 and brightness < 225:
-            if brightness > 185:
-                return "light_tan"
-            return "tan"
+            return "light_tan" if brightness > 185 else "tan"
 
     return color_name
 
 
+def correct_vehicle_color(color_name, rgb):
+    """
+    Vehicle rule: preserve true body colors and lights, but prevent neutral
+    shadows/windows/tires from becoming random saturated colors.
+    """
+    if has_real_color_support(rgb, color_name):
+        return color_name
+
+    # If the source pixel is low saturation, it is probably window, tire, metal, or shadow.
+    if color_saturation(rgb) < 30:
+        return neutral_color_from_brightness(rgb)
+
+    return color_name
+
+
+def correct_architecture_color(color_name, rgb):
+    """
+    Architecture rule: favor stone/tan/brick/neutral colors for low-saturation
+    building surfaces, but preserve real sky/grass/brick/accent colors.
+    """
+    r, g, b = rgb
+    sat = color_saturation(rgb)
+    brightness = brightness_from_rgb(rgb)
+
+    if has_real_color_support(rgb, color_name):
+        return color_name
+
+    if sat < 24:
+        return neutral_color_from_brightness(rgb)
+
+    # Warm low/medium saturation building material becomes tan/brown instead of random red/orange.
+    if r >= b + 10 and g >= b:
+        return warm_natural_color_from_rgb(rgb)
+
+    if brightness > 190:
+        return "very_light_gray"
+
+    return neutral_color_from_brightness(rgb)
+
+
+def correct_landscape_color(color_name, rgb):
+    """
+    Landscape rule: preserve natural greens/blues/browns, but neutral shadows
+    should remain neutral/brown instead of becoming unnatural bright colors.
+    """
+    if has_real_color_support(rgb, color_name):
+        return color_name
+
+    r, g, b = rgb
+    sat = color_saturation(rgb)
+
+    if sat < 24:
+        return neutral_color_from_brightness(rgb)
+
+    if g >= r - 8 and g >= b - 8:
+        return closest_lego_color_name(rgb, {k: LANDSCAPE_LEGO_RGB_PALETTE[k] for k in ["sand_green", "olive_green", "dark_green", "green", "lime"]})
+
+    if b >= r + 8 and b >= g - 5:
+        return closest_lego_color_name(rgb, {k: LANDSCAPE_LEGO_RGB_PALETTE[k] for k in ["sand_blue", "light_blue", "medium_blue", "blue"]})
+
+    if r >= b + 10:
+        return warm_natural_color_from_rgb(rgb)
+
+    return color_name
+
+
+def correct_general_color(color_name, rgb):
+    """
+    General/product rule: closest LEGO color is used, with only a small guard
+    against saturated colors being chosen for gray pixels.
+    """
+    if has_real_color_support(rgb, color_name):
+        return color_name
+
+    if color_saturation(rgb) < 25:
+        return neutral_color_from_brightness(rgb)
+
+    return color_name
+
+
+def correct_color_for_category(color_name, rgb, analysis):
+    if is_pet_like_analysis(analysis):
+        return correct_pet_color(color_name, rgb)
+    if is_vehicle_like_analysis(analysis):
+        return correct_vehicle_color(color_name, rgb)
+    if is_architecture_like_analysis(analysis):
+        return correct_architecture_color(color_name, rgb)
+    if is_landscape_like_analysis(analysis):
+        return correct_landscape_color(color_name, rgb)
+    return correct_general_color(color_name, rgb)
+
+
 def get_geometry_palette_for_resolution(base_palette, analysis):
     """
-    Returns palette used for resolving preview RGB. For pet geometry, include
-    eye-only colors so sand_green/olive_green/green can resolve correctly.
+    Returns palette used for resolving preview RGB. It merges special colors
+    that may be selected by category corrections.
     """
+    merged = dict(base_palette)
     if is_pet_like_analysis(analysis):
-        merged = dict(base_palette)
         merged.update(PET_EYE_RGB_PALETTE)
-        return merged
-    return base_palette
+    if is_landscape_like_analysis(analysis):
+        merged.update(LANDSCAPE_LEGO_RGB_PALETTE)
+    if is_vehicle_like_analysis(analysis):
+        merged.update(VEHICLE_LEGO_RGB_PALETTE)
+    if is_architecture_like_analysis(analysis):
+        merged.update(ARCHITECTURE_LEGO_RGB_PALETTE)
+    merged.update(UNIVERSAL_LEGO_RGB_PALETTE)
+    return merged
 
-def brightness_from_rgb(rgb):
-    r, g, b = rgb
-    return (0.299 * r) + (0.587 * g) + (0.114 * b)
+
+def get_color_policy_metadata(analysis):
+    policy = get_color_policy_name(analysis)
+    return {
+        "palette_type": policy,
+        "universal_closest_lego_color_mapping": True,
+        "category_specific_palette": True,
+        "category_specific_correction_rules": True,
+        "pet_eye_protection_enabled": bool(is_pet_like_analysis(analysis)),
+        "vehicle_body_color_preservation_enabled": bool(is_vehicle_like_analysis(analysis)),
+        "landscape_green_blue_preservation_enabled": bool(is_landscape_like_analysis(analysis)),
+        "architecture_neutral_stone_preservation_enabled": bool(is_architecture_like_analysis(analysis)),
+        "source_rgb_preserved_per_placement": True,
+        "notes": [
+            "The original image pixel RGB is the source of truth.",
+            "Each pixel is first mapped to the closest allowed LEGO/Rebrickable color for the detected category.",
+            "Correction rules only prevent category-specific color artifacts, such as green fur in pets or saturated colors in gray vehicle shadows."
+        ]
+    }
 
 
 def height_plates_from_rgb(rgb, edge_value=0):
@@ -2134,13 +2403,20 @@ def resolve_geometry_color(color_name, palette):
 
     try:
         color_data = resolve_rebrickable_color(color_name)
-        resolved_rgb = color_data.get("rgb") or palette_rgb_hex
+        normalized_requested = normalize_color_alias(color_name)
+        returned_name = normalize_text(color_data.get("name"))
+
+        # If Rebrickable resolution fell back to light bluish gray because the
+        # color name was not found, prefer the local palette RGB for preview.
+        resolved_rgb = color_data.get("rgb")
+        if normalized_requested not in returned_name and palette_rgb_hex:
+            resolved_rgb = palette_rgb_hex
 
         return {
             "planner_color": color_name,
             "rebrickable_color_id": color_data.get("id"),
             "rebrickable_color_name": color_data.get("name") or color_name,
-            "rebrickable_color_rgb": resolved_rgb
+            "rebrickable_color_rgb": resolved_rgb or palette_rgb_hex
         }
 
     except Exception:
@@ -2165,6 +2441,7 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
     image = resize_image_keep_aspect(image, width, height)
 
     palette = get_palette_for_analysis(analysis)
+    resolution_palette = get_geometry_palette_for_resolution(palette, analysis)
 
     edge_image = image.convert("L").filter(ImageFilter.FIND_EDGES)
 
@@ -2178,19 +2455,10 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
             rgb = image.getpixel((x, y))
             edge_value = edge_image.getpixel((x, y))
 
-            color_name = closest_lego_color_name(rgb, palette)
-
-            # Pet/animal images need special handling:
-            # - green/olive/sand-green only for genuine eye-like pixels
-            # - warm fur should stay tan/brown, not white/gray/green/red
-            if is_pet_like_analysis(analysis):
-                if is_pet_eye_greenish_pixel(rgb):
-                    color_name = closest_pet_eye_color_name(rgb)
-                else:
-                    color_name = correct_pet_fur_color_mapping(color_name, rgb)
+            raw_closest_color = closest_lego_color_name(rgb, palette)
+            color_name = correct_color_for_category(raw_closest_color, rgb, analysis)
 
             if color_name not in color_cache:
-                resolution_palette = get_geometry_palette_for_resolution(palette, analysis)
                 color_cache[color_name] = resolve_geometry_color(color_name, resolution_palette)
 
             color_data = color_cache[color_name]
@@ -2203,6 +2471,7 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
                 "part_name": part_name,
                 "part_num": part_num,
                 "color": color_name,
+                "raw_closest_color": raw_closest_color,
                 "rebrickable_color_id": color_data.get("rebrickable_color_id"),
                 "rebrickable_color_name": color_data.get("rebrickable_color_name"),
                 "rebrickable_color_rgb": color_data.get("rebrickable_color_rgb"),
@@ -2224,17 +2493,9 @@ def generate_image_geometry(image_url, analysis, width=48, height=48, part_name=
         "part_name": part_name,
         "part_num": part_num,
         "max_height_plates": 6,
-        "color_policy": {
-            "palette_type": "pet_safe_warm_fur_eye_protected" if is_pet_like_analysis(analysis) else "general",
-            "pet_unwanted_warm_colors_blocked": bool(is_pet_like_analysis(analysis)),
-            "pet_warm_fur_bias_enabled": bool(is_pet_like_analysis(analysis)),
-            "pet_green_limited_to_eye_pixels": bool(is_pet_like_analysis(analysis)),
-            "eye_color_palette": list(PET_EYE_RGB_PALETTE.keys()) if is_pet_like_analysis(analysis) else [],
-            "blocked_for_pet_geometry": ["red", "dark_red", "orange", "pink", "yellow"] if is_pet_like_analysis(analysis) else []
-        },
+        "color_policy": get_color_policy_metadata(analysis),
         "placements": placements
     }
-
 
 def summarize_geometry_parts(geometry):
     summary = {}
