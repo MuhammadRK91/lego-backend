@@ -2165,40 +2165,53 @@ def has_real_color_support(rgb, color_name):
 
 def is_pet_eye_colored_pixel(rgb):
     """
-    Detects real animal eye colors: pale green, gray-green, yellow-green,
-    olive/hazel, blue eyes, dark pupil, and small white highlight.
+    Detects only strongly supported animal eye colors.
+
+    Important: this must be strict. If this is too loose, normal tan/brown fur
+    becomes sand_green/olive_green across the whole animal.
+
+    Allowed eye-like pixels:
+    - real green / gray-green pixels where green is clearly above red/blue
+    - real blue pixels where blue is clearly present
+    - very small bright yellow-green highlights only when saturation is strong
+
+    Warm tan/brown fur is intentionally NOT treated as an eye color.
     """
     r, g, b = rgb
     brightness = brightness_from_rgb(rgb)
     sat = color_saturation(rgb)
 
-    if brightness < 25 or brightness > 245:
+    if brightness < 35 or brightness > 235:
         return False
 
-    greenish = (
-        g >= r - 16
-        and g >= b - 8
-        and sat >= 14
+    # True green or gray-green eye pixels.
+    # This avoids mapping warm tan fur to green.
+    real_green_eye = (
+        sat >= 24
+        and g >= r + 3
+        and g >= b + 14
         and 45 <= brightness <= 220
     )
 
-    olive_or_hazel = (
-        g >= b + 6
-        and r >= b + 4
-        and abs(r - g) <= 58
-        and sat >= 16
-        and 50 <= brightness <= 205
+    # True blue eye pixels.
+    real_blue_eye = (
+        sat >= 26
+        and b >= r + 12
+        and b >= g + 2
+        and 50 <= brightness <= 220
     )
 
-    bluish_eye = (
-        b >= r + 8
-        and b >= g - 5
-        and sat >= 18
-        and 55 <= brightness <= 220
+    # Small yellow-green highlights can exist in eyes, but this must be strict
+    # so ordinary cream/tan fur does not become yellow/green.
+    yellow_green_eye_highlight = (
+        sat >= 55
+        and g >= b + 35
+        and r >= b + 35
+        and abs(r - g) <= 30
+        and 90 <= brightness <= 210
     )
 
-    return bool(greenish or olive_or_hazel or bluish_eye)
-
+    return bool(real_green_eye or real_blue_eye or yellow_green_eye_highlight)
 
 def closest_pet_eye_color_name(rgb):
     return closest_lego_color_name(rgb, PET_EYE_RGB_PALETTE)
@@ -2206,36 +2219,60 @@ def closest_pet_eye_color_name(rgb):
 
 def correct_pet_color(color_name, rgb):
     """
-    Pet/animal rule: preserve natural fur and eyes.
-    - green/blue/yellow eye colors are allowed only for eye-like pixels
-    - warm fur maps to tan/brown families
-    - mid-bright fur does not become too white/gray
+    Pet/animal rule: preserve natural fur and protect eyes without turning the
+    full animal green.
+
+    Rule priority:
+    1. Use eye colors only when the source pixel strongly supports real eye color.
+    2. Never allow green/blue/yellow to appear in fur/shadow/background just
+       because the nearest palette color was greenish.
+    3. Warm fur maps to tan/brown families.
+    4. Neutral/white fur can remain gray/white when it is truly neutral.
     """
     r, g, b = rgb
     brightness = brightness_from_rgb(rgb)
+    sat = color_saturation(rgb)
 
+    # Only real green/blue/yellow-green pixels may use eye palette.
+    # This fixes the issue where tan fur became dominant green.
     if is_pet_eye_colored_pixel(rgb):
         return closest_pet_eye_color_name(rgb)
 
-    if color_name in {"sand_green", "olive_green", "dark_green", "green", "lime", "sand_blue", "medium_blue", "blue", "yellow"}:
+    # Block all non-fur saturated colors outside true eye pixels.
+    if color_name in {
+        "sand_green", "olive_green", "dark_green", "green", "lime",
+        "sand_blue", "medium_blue", "blue", "dark_blue",
+        "yellow", "red", "dark_red", "orange", "dark_orange", "pink"
+    }:
+        # If it is a low-saturation pixel, it is likely shadow/background.
+        if sat < 35:
+            return neutral_color_from_brightness(rgb)
         return warm_natural_color_from_rgb(rgb)
 
-    if color_name in {"red", "dark_red", "orange", "dark_orange", "pink"}:
-        return warm_natural_color_from_rgb(rgb)
+    # Warm fur: tan / brown / dark tan / reddish brown.
+    # The thresholds are softer now so the cat/dog body stays warm, not white/gray.
+    warm_pixel = (
+        r >= g - 10
+        and g >= b - 10
+        and (r - b) > 14
+        and brightness < 235
+    )
 
-    warm_pixel = (r >= g - 8 and g >= b - 8 and (r - b) > 16)
     if warm_pixel:
         return warm_natural_color_from_rgb(rgb)
 
-    if color_name == "white" and brightness < 235:
-        return "light_tan" if r >= b + 8 else "very_light_gray"
+    # Do not let slightly warm off-white fur become pure white too often.
+    if color_name == "white" and brightness < 238:
+        if r >= b + 8 and g >= b + 3:
+            return "light_tan"
+        return "very_light_gray"
 
+    # Light gray pet pixels with warm tint should become light tan/tan.
     if color_name in {"very_light_gray", "light_gray", "light_bluish_gray"}:
-        if r >= b + 10 and g >= b + 4 and brightness < 225:
-            return "light_tan" if brightness > 185 else "tan"
+        if r >= b + 10 and g >= b + 4 and brightness < 228:
+            return "light_tan" if brightness > 190 else "tan"
 
     return color_name
-
 
 def correct_vehicle_color(color_name, rgb):
     """
@@ -2362,7 +2399,7 @@ def get_color_policy_metadata(analysis):
         "notes": [
             "The original image pixel RGB is the source of truth.",
             "Each pixel is first mapped to the closest allowed LEGO/Rebrickable color for the detected category.",
-            "Correction rules only prevent category-specific color artifacts, such as green fur in pets or saturated colors in gray vehicle shadows."
+            "Correction rules only prevent category-specific color artifacts, such as green fur in pets or saturated colors in gray vehicle shadows. Pet eye colors use strict source-pixel checks so tan/brown fur does not become green."
         ]
     }
 
